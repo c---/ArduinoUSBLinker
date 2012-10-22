@@ -18,17 +18,15 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 */
 
 /*
-VERSION 0.2
-
 Notes:
   Please try reading from your ESC before trying to burn new firmware.
   Dump the eeprom or something first to make sure the interface is
   working.
 
 Known issues:
-  When applying power to this device and the ESC at the same time the
+  When applying power to the Arduino and the ESC at the same time the
   ESC will arm before we are able to set the signal pin HIGH. It will
-  still work but be careful. Best is to connect and power this device
+  still work but be careful. Best is to connect and power the Arduino
   first then power up the ESC so that it will hold in the bootloader
   (no beeps).
 
@@ -36,19 +34,14 @@ Known issues:
   will likely crash this software. The STK500 firmware is currently
   limited to 281 bytes so it is not an issue at this time.
 
-  The current design does not allow for very fast bit rates over the
-  signal pin. The default is 136µs per bit or about 7353 bps which is
-  close to what the USB Linker uses. Less than 64µs does not work well
-  due to timing issues. The problem most likely lies with this code
-  as it is not as efficient and accurate as it could be and I only
-  loosely followed Simon's notes for timing. See BITTIME.
+  The default signaling rate over the servo wire is 136µs per bit or
+  about 7353 bps which is close to what an actual USB Linker uses. 
+  The current fastest supported speed is 20µs (~50 kbps).
+  See BITTIME below to change the signaling rate.
 
-  Note that the default serial port rate is 115200. Make sure your tools
-  are using this rate also or change it below; see SERIALRATE.
-  avrdude has no problem with the 115200 serial rate and slower signal
-  rates but some tools could time out while waiting for the response
-  messages. Slower serial port rates work fine but will make transfers
-  slower due to the buffered design.
+  Note that the default serial port rate is 115200 and this is separate
+  from the servo wire signaling rate. Make sure your tools are using
+  the same serial port rate or change it below; see SERIALRATE.
   
 Version history:
   0.1 2012-10-21
@@ -57,6 +50,9 @@ Version history:
   0.2 2012-10-22
       Minor code cleanup in ReadLeader().  Added main() implementation to
       prevent Arduino overhead. Maximum speed now around 50 kbps (20µs).
+
+  0.3 2012-10-22
+      Set default bit rate to the correct 136µs signaling. Update comments.
 */
 
 // Signal pin (default: PD2/INT0)
@@ -91,8 +87,8 @@ Version history:
 #define DELAY delayTicks
 
 // Approximate microseconds for each bit when sending
-//#define BITTIME MICROS(136)
-#define BITTIME MICROS(20)
+#define BITTIME MICROS(136)
+//#define BITTIME MICROS(20)
 
 #define LONGBITDELAY DELAY(BITTIME / 2)
 #define SHORTBITDELAY DELAY(BITTIME / 4)
