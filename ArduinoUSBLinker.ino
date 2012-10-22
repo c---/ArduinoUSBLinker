@@ -18,7 +18,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 */
 
 /*
-VERSION 0.1
+VERSION 0.2
 
 Notes:
   Please try reading from your ESC before trying to burn new firmware.
@@ -49,9 +49,17 @@ Known issues:
   rates but some tools could time out while waiting for the response
   messages. Slower serial port rates work fine but will make transfers
   slower due to the buffered design.
+  
+Version history:
+  0.1 2012-10-21
+      Initial release. Maximum speed around 15 kbps (64µs).
+  
+  0.2 2012-10-22
+      Minor code cleanup in ReadLeader().  Added main() implementation to
+      prevent Arduino overhead. Maximum speed now around 50 kbps (20µs).
 */
 
-// Change this to set the signal pin (default: PD2/INT0)
+// Signal pin (default: PD2/INT0)
 #define ULPORT D
 #define ULPIN 2
 
@@ -83,8 +91,8 @@ Known issues:
 #define DELAY delayTicks
 
 // Approximate microseconds for each bit when sending
-#define BITTIME MICROS(136)
-//#define BITTIME MICROS(64)
+//#define BITTIME MICROS(136)
+#define BITTIME MICROS(20)
 
 #define LONGBITDELAY DELAY(BITTIME / 2)
 #define SHORTBITDELAY DELAY(BITTIME / 4)
@@ -184,7 +192,7 @@ static inline int8_t ReadBit()
 
 static int ReadLeader()
 {
-  // Skip the first few to let things stablize
+  // Skip the first few to let things stabilize
   if (WaitPinHighLow(LONGWAIT) < 0) return -1;
   if (WaitPinHighLow(LONGWAIT) < 0) return -2;
   if (WaitPinHighLow(LONGWAIT) < 0) return -3;
@@ -218,20 +226,17 @@ static int ReadLeader()
   bitTime += timer;
 
   bitTime /= 10;
-  shortBitTime = bitTime * 0.75;
+  shortBitTime = (bitTime >> 1) + (bitTime >> 2);
 
   // Read until we get a 0 bit
   while (1)
   {
-    timer = WaitPinHighLow(bitTime * 2);
+    int b = ReadBit();
 
-    if (timer < 0)
+    if (b < 0)
       return -16;
-    else if (timer < shortBitTime)
-    {
-      if (WaitPinHighLow(bitTime * 2) < 0) return -17;
+    else if (b == 0)
       break;
-    }
   }
 
   return 0;
@@ -343,5 +348,12 @@ main:
   }
 
   goto main;
+}
+
+int main(int argc, char* argv[])
+{
+  setup();
+  while (1) loop();
+  return 0;
 }
 
