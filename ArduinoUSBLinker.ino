@@ -56,15 +56,23 @@ Version history:
       
   0.4 ???
       Code cleanup.
+      
+      Add support for easily changing the signal pin. PD2/INT0 and PD3/INT1
+      support full speed signaling while the other pins must be run slower
+      due to them having more overhead. Changing the signaling pin requires
+      updating ULPORT, ULPIN, PINREAD, PINISR, PININIT, PINENABLE, and
+      PINDISABLE. Some preconfigured defaults are below.
 */
-
-// Signal pin (default: PD2/INT0)
-#define ULPORT D
-#define ULPIN 2
 
 // Macro expansion macros
 #define CONCAT0(x,y) x##y
 #define CONCAT(x,y) CONCAT0(x,y)
+
+///////////////////////////////////////////////////////////////////////////////
+// Signal pin (default: PD2/INT0)
+///////////////////////////////////////////////////////////////////////////////
+#define ULPORT D
+#define ULPIN 2
 
 // These macros concatenate other macros.
 // For example if ULPORT is D and ULPIN is 2:
@@ -81,8 +89,35 @@ Version history:
 #define PINOUTPUT (CONCAT(DDR,ULPORT)  |=  (1 << CONCAT(DD,ULPORTPIN)))
 // Set signal pin to input mode
 #define PININPUT  (CONCAT(DDR,ULPORT)  &= ~(1 << CONCAT(DD,ULPORTPIN)))
-// Read signal pin status (HIGH or LOW)
-#define PINREAD   (CONCAT(PIN,ULPORT)  &   (1 << CONCAT(PIN,ULPORTPIN)))
+
+// PD2/INT0
+#define PINREAD    (1)
+#define PINISR     INT0_vect
+#define PININIT    (EICRA = (1 << ISC01) | (1 << ISC00))
+#define PINENABLE  (EIMSK = (1 << INT0))
+#define PINDISABLE (EIMSK = 0)
+
+// PD3/INT1
+/*
+#define PINREAD    (1)
+#define PINISR     INT1_vect
+#define PININIT    (EICRA = (1 << ISC11) | (1 << ISC10))
+#define PINENABLE  (EIMSK = (1 << INT1))
+#define PINDISABLE (EIMSK = 0)
+*/
+
+// PB7..0/PCINT7..0
+/*
+// PINISR must be manually updated depending on which pin you are using; the
+// rest should work automatically for PB7..0/PCINT7..0
+#define PINREAD    (CONCAT(PIN,ULPORT) & (1 << CONCAT(PIN,ULPORTPIN)))
+#define PINISR     PCINT0_vect
+#define PININIT    (PCICR = (1 << CONCAT(PCIE, ULPIN)))
+#define PINENABLE  (PCMSK0 = (1 << CONCAT(PCINT, ULPIN)))
+#define PINDISABLE (PCMSK0 = 0)
+*/
+
+///////////////////////////////////////////////////////////////////////////////
 
 // Calculates ticks from microseconds
 #define MICROS(x) ((F_CPU / 1000000) * x)
@@ -156,11 +191,14 @@ static inline void SendByte(uint8_t b)
 ///////////////////////////////////////////////////////////////////////////////
 // RECEIVE on signal pin //////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-ISR(INT0_vect)
+ISR(PINISR)
 {
-  g_lastBitTicks = TCNT1;
-  TCNT1 = 0;
-  g_bitTrigger = 1;
+  if (PINREAD)
+  {
+    g_lastBitTicks = TCNT1;
+    TCNT1 = 0;
+    g_bitTrigger = 1;
+  }
 }
 
 // NOTE: This has a maximum wait time of about 2000us before it overflows
@@ -290,8 +328,8 @@ void setup()
   TCCR1A = 0;
 
   // Signal pin timer interrupt
-  EICRA |= (1 << ISC01) | (1 << ISC00);
-  EIMSK |= (1 << INT0);
+  PININIT;
+  PINENABLE;
 
   sei();
 }
@@ -308,7 +346,7 @@ void loop()
     if (b >= 0)
     {
       // Disable signal pin timer interrupt
-      EIMSK = 0;
+      PINDISABLE;
   
       buflen = 3;
       buf[buflen++] = b;
@@ -335,7 +373,7 @@ void loop()
       SHORTBITDELAY;
   
       PININPUT; // Pull-up is enabled from previous PINHIGH
-      EIMSK |= (1 << INT0);
+      PINENABLE;
     }
     else if (g_bitTrigger)
     {
