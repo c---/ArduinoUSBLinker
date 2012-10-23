@@ -53,6 +53,9 @@ Version history:
 
   0.3 2012-10-22
       Set default bit rate to the correct 136µs signaling. Update comments.
+      
+  0.4 ???
+      Code cleanup.
 */
 
 // Signal pin (default: PD2/INT0)
@@ -104,15 +107,15 @@ Version history:
 ///////////////////////////////////////////////////////////////////////////////
 
 // Calculated leader timing for receive
-static int bitTime, shortBitTime;
+static uint16_t g_bitTime, g_shortBitTime;
 
-static volatile int8_t bitTrigger;
-static volatile int lastBitTicks;
+static volatile int8_t g_bitTrigger;
+static volatile uint16_t g_lastBitTicks;
 
 ///////////////////////////////////////////////////////////////////////////////
 // SENDING on signal pin //////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-static inline void delayTicks(int count)
+static inline void delayTicks(uint16_t count)
 {
   TCNT1 = 0;
   while (TCNT1 < count);
@@ -138,7 +141,7 @@ static inline void Send0()
   SHORTBITDELAY;
 }
 
-static inline void SendByte(int b)
+static inline void SendByte(uint8_t b)
 {
   (b & B00000001) ? Send1() : Send0();
   (b & B00000010) ? Send1() : Send0();
@@ -155,38 +158,39 @@ static inline void SendByte(int b)
 ///////////////////////////////////////////////////////////////////////////////
 ISR(INT0_vect)
 {
-  lastBitTicks = TCNT1;
+  g_lastBitTicks = TCNT1;
   TCNT1 = 0;
-  bitTrigger = 1;
+  g_bitTrigger = 1;
 }
 
-static inline int WaitPinHighLow(int timeout)
+// NOTE: This has a maximum wait time of about 2000us before it overflows
+static inline int16_t WaitPinHighLow(uint16_t timeout)
 {
-  while (bitTrigger == 0)
+  while (g_bitTrigger == 0)
     if (TCNT1 > timeout)
       return -1;
 
-  bitTrigger = 0;
+  g_bitTrigger = 0;
 
-  return lastBitTicks;
+  return g_lastBitTicks;
 }
 
 static inline int8_t ReadBit()
 {
-  int timer = WaitPinHighLow(bitTime * 2);
+  int16_t timer = WaitPinHighLow(g_bitTime * 2);
 
   if (timer < 0)
     return -1;
-  else if (timer < shortBitTime)
+  else if (timer < g_shortBitTime)
   {
-    if (WaitPinHighLow(bitTime * 2) < 0) return -1;
+    if (WaitPinHighLow(g_bitTime * 2) < 0) return -1;
     return 0;
   }
   else
     return 1;
 }
 
-static int ReadLeader()
+static int8_t ReadLeader()
 {
   // Skip the first few to let things stabilize
   if (WaitPinHighLow(LONGWAIT) < 0) return -1;
@@ -194,43 +198,43 @@ static int ReadLeader()
   if (WaitPinHighLow(LONGWAIT) < 0) return -3;
   if (WaitPinHighLow(LONGWAIT) < 0) return -4;
   if (WaitPinHighLow(LONGWAIT) < 0) return -5;
+  if (WaitPinHighLow(LONGWAIT) < 0) return -6;
+  if (WaitPinHighLow(LONGWAIT) < 0) return -7;
+  if (WaitPinHighLow(LONGWAIT) < 0) return -8;
+  if (WaitPinHighLow(LONGWAIT) < 0) return -9;
 
-  int timer;
-  bitTime = 0;
+  int16_t timer;
+  g_bitTime = 0;
 
-  // Average the next 10 to get our bit timing
-  // NOTE: the longest bit time is about 200us or we will overflow
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -6;
-  bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -7;
-  bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -8;
-  bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -9;
-  bitTime += timer;
+  // Average the next 8 to get our bit timing
+  // NOTE: this has a window of around 4000us before we overflow
   if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -10;
-  bitTime += timer;
+  g_bitTime += timer;
   if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -11;
-  bitTime += timer;
+  g_bitTime += timer;
   if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -12;
-  bitTime += timer;
+  g_bitTime += timer;
   if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -13;
-  bitTime += timer;
+  g_bitTime += timer;
   if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -14;
-  bitTime += timer;
+  g_bitTime += timer;
   if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -15;
-  bitTime += timer;
+  g_bitTime += timer;
+  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -16;
+  g_bitTime += timer;
+  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -17;
+  g_bitTime += timer;
 
-  bitTime /= 10;
-  shortBitTime = (bitTime >> 1) + (bitTime >> 2);
+  g_bitTime >>= 3;
+  g_shortBitTime = (g_bitTime >> 1) + (g_bitTime >> 2);
 
   // Read until we get a 0 bit
   while (1)
   {
-    int b = ReadBit();
+    int8_t b = ReadBit();
 
     if (b < 0)
-      return -16;
+      return -18;
     else if (b == 0)
       break;
   }
@@ -238,9 +242,9 @@ static int ReadLeader()
   return 0;
 }
 
-static inline int ReadByte()
+static inline int16_t ReadByte()
 {
-  int b;
+  int16_t b;
   int8_t b2;
 
   if ((b = ReadBit()) < 0) return -1;
@@ -279,6 +283,8 @@ void setup()
   PINHIGH; // Enable pull-up
   Serial.begin(SERIALRATE);
 
+  cli();
+
   // Set up timer1 to count ticks  
   TCCR1B = (1 << CS10);
   TCCR1A = 0;
@@ -286,64 +292,67 @@ void setup()
   // Signal pin timer interrupt
   EICRA |= (1 << ISC01) | (1 << ISC00);
   EIMSK |= (1 << INT0);
+
   sei();
 }
 
 void loop()
 {
   // The buffer always has the leader at the start
-  static uint8_t buf[1024] = { 0xFF, 0xFF, 0x7F };
-  static int buflen, b, i;
+  uint8_t buf[1024] = { 0xFF, 0xFF, 0x7F };
+  int16_t buflen, b, i;
 
-main:
-  b = Serial.read();
-  if (b >= 0)
+  while (1)
   {
-    // Disable signal pin timer interrupt
-    EIMSK = 0;
-
-    buflen = 3;
-    buf[buflen++] = b;
-
-    // Buffer data until the serial timeout
-    TCNT1 = 0;
-    do {
-       b = Serial.read();
-       if (b >= 0)
-       {
-         buf[buflen++] = b;
-         TCNT1 = 0;
-       }
-    } while (TCNT1 < SERIALTIMEOUT);
-
-    PINOUTPUT;
-
-    // Send data over signal pin
-    for (i = 0; i < buflen; i++)
-      SendByte(buf[i]);
-
-    // Trailer
-    PINHIGH;
-    SHORTBITDELAY;
-
-    PININPUT; // Pull-up is enabled from previous PINHIGH
-    EIMSK |= (1 << INT0);
-  }
-  else if (bitTrigger)
-  {
-    // Buffer data from signal pin then write to serial port
-    buflen = 3;
-    bitTrigger = 0;
-    if (ReadLeader() == 0)
+    b = Serial.read();
+    if (b >= 0)
     {
-      while ((b = ReadByte()) != -1)
-        buf[buflen++] = b;
+      // Disable signal pin timer interrupt
+      EIMSK = 0;
+  
+      buflen = 3;
+      buf[buflen++] = b;
+  
+      // Buffer data until the serial timeout
+      TCNT1 = 0;
+      do {
+         b = Serial.read();
+         if (b >= 0)
+         {
+           buf[buflen++] = b;
+           TCNT1 = 0;
+         }
+      } while (TCNT1 < SERIALTIMEOUT);
+  
+      PINOUTPUT;
+  
+      // Send data over signal pin
+      for (i = 0; i < buflen; i++)
+        SendByte(buf[i]);
+  
+      // Trailer
+      PINHIGH;
+      SHORTBITDELAY;
+  
+      PININPUT; // Pull-up is enabled from previous PINHIGH
+      EIMSK |= (1 << INT0);
+    }
+    else if (g_bitTrigger)
+    {
+      // Buffer data from signal pin then write to serial port
 
-      Serial.write(&buf[3], buflen - 3);
+      g_bitTrigger = 0;
+      buflen = 3;
+
+      if (ReadLeader() == 0)
+      {
+        while ((b = ReadByte()) >= 0)
+          buf[buflen++] = b;
+  
+        Serial.write(&buf[3], buflen - 3);
+      }
     }
   }
-
-  goto main;
 }
 
 int main(int argc, char* argv[])
