@@ -18,50 +18,42 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 */
 
 /*
-Notes:
-  Please try reading from your ESC before trying to burn new firmware.
-  Dump the eeprom or something first to make sure the interface is
-  working.
-
 Known issues:
-  When applying power to the Arduino and the ESC at the same time the
-  ESC will arm before we are able to set the signal pin HIGH. It will
-  still work but be careful. Best is to connect and power the Arduino
-  first then power up the ESC so that it will hold in the bootloader
-  (no beeps).
+  When applying power to the Arduino and the ESC at the same time the ESC will
+  arm before we are able to set the signal pin HIGH. It will still work but be
+  careful. Best is to connect and power the Arduino first then power up the
+  ESC to ensure that it is held in the bootloader (there should be no beeps
+  from the ESC).
 
-  Message sizes of more than 1021 bytes (total) not not supported and
-  will likely crash this software. The STK500 firmware is currently
-  limited to 281 bytes so it is not an issue at this time.
+  Message sizes of more than 1021 bytes (total) not not supported and will
+  likely crash this software. The STK500 firmware is currently limited to 281
+  bytes so it is not an issue at this time.
 
-  The default signaling rate over the servo wire is 136µs per bit or
-  about 7353 bps which is close to what an actual USB Linker uses. 
-  The current fastest supported speed is 20µs (~50 kbps).
-  See BITTIME below to change the signaling rate.
+  The default signaling rate over the servo wire is 136µs per bit or about
+  7 kbps which is close to what an actual USB Linker uses. The fastest
+  supported signaling rate is 20µs (~50 kbps). See BITTIME below to change
+  the signaling rate.
 
-  Note that the default serial port rate is 115200 and this is separate
-  from the servo wire signaling rate. Make sure your tools are using
-  the same serial port rate or change it below; see SERIALRATE.
+  Note that the default serial port rate is 115200 and this is separate from
+  the servo wire signaling rate. Make sure your tools are using the same
+  serial port rate. See SERIALRATE below.
   
 Version history:
-  0.1 2012-10-21
-      Initial release. Maximum speed around 15 kbps (64µs).
-  
-  0.2 2012-10-22
-      Minor code cleanup in ReadLeader().  Added main() implementation to
-      prevent Arduino overhead. Maximum speed now around 50 kbps (20µs).
-
-  0.3 2012-10-22
-      Set default bit rate to the correct 136µs signaling. Update comments.
-      
-  0.4 ???
-      Code cleanup.
+  0.4 General code cleanup. Use bit shifting for all multiply and divide
+      operations when possible.
       
       Add support for easily changing the signal pin. PD2/INT0 and PD3/INT1
       support full speed signaling while the other pins must be run slower
       due to them having more overhead. Changing the signaling pin requires
       updating ULPORT, ULPIN, PINREAD, PINISR, PININIT, PINENABLE, and
       PINDISABLE. Some preconfigured defaults are below.
+
+  0.3 Set default bit rate to the correct 136µs signaling. Update comments.
+      
+  0.2 Minor code cleanup in ReadLeader().  Added main() implementation to
+      prevent Arduino overhead. Maximum speed now around 50 kbps (20µs).
+
+  0.1 Initial release. Maximum speed around 15 kbps (64µs).
 */
 
 // Macro expansion macros
@@ -107,13 +99,13 @@ Version history:
 */
 
 // PB7..0/PCINT7..0
-/*
 // PINISR must be manually updated depending on which pin you are using; the
-// rest should work automatically for PB7..0/PCINT7..0
+// rest should work automatically based on ULPORT and ULPIN.
+/*
 #define PINREAD    (CONCAT(PIN,ULPORT) & (1 << CONCAT(PIN,ULPORTPIN)))
 #define PINISR     PCINT0_vect
-#define PININIT    (PCICR = (1 << CONCAT(PCIE, ULPIN)))
-#define PINENABLE  (PCMSK0 = (1 << CONCAT(PCINT, ULPIN)))
+#define PININIT    (PCICR = (1 << CONCAT(PCIE,ULPIN)))
+#define PINENABLE  (PCMSK0 = (1 << CONCAT(PCINT,ULPIN)))
 #define PINDISABLE (PCMSK0 = 0)
 */
 
@@ -128,17 +120,17 @@ Version history:
 #define BITTIME MICROS(136)
 //#define BITTIME MICROS(20)
 
-#define LONGBITDELAY DELAY(BITTIME / 2)
-#define SHORTBITDELAY DELAY(BITTIME / 4)
+#define LONGBITDELAY DELAY(BITTIME >> 1)
+#define SHORTBITDELAY DELAY(BITTIME >> 2)
 
 #define LONGWAIT MICROS(1000)
 
 // Serial port
 #define SERIALRATE 115200
-#define SERIALTIMEOUT (F_CPU / (SERIALRATE / 16))
+#define SERIALTIMEOUT (F_CPU / (SERIALRATE >> 4))
 
 ///////////////////////////////////////////////////////////////////////////////
-// Globals ////////////////////////////////////////////////////////////////////
+// Globals
 ///////////////////////////////////////////////////////////////////////////////
 
 // Calculated leader timing for receive
@@ -148,7 +140,7 @@ static volatile int8_t g_bitTrigger;
 static volatile uint16_t g_lastBitTicks;
 
 ///////////////////////////////////////////////////////////////////////////////
-// SENDING on signal pin //////////////////////////////////////////////////////
+// SENDING on signal pin
 ///////////////////////////////////////////////////////////////////////////////
 static inline void delayTicks(uint16_t count)
 {
@@ -189,7 +181,7 @@ static inline void SendByte(uint8_t b)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// RECEIVE on signal pin //////////////////////////////////////////////////////
+// RECEIVE on signal pin
 ///////////////////////////////////////////////////////////////////////////////
 ISR(PINISR)
 {
@@ -201,7 +193,7 @@ ISR(PINISR)
   }
 }
 
-// NOTE: This has a maximum wait time of about 2000us before it overflows
+// NOTE: This has a maximum wait time of about 2000µs before it overflows
 static inline int16_t WaitPinHighLow(uint16_t timeout)
 {
   while (g_bitTrigger == 0)
@@ -215,13 +207,13 @@ static inline int16_t WaitPinHighLow(uint16_t timeout)
 
 static inline int8_t ReadBit()
 {
-  int16_t timer = WaitPinHighLow(g_bitTime * 2);
+  int16_t timer = WaitPinHighLow(g_bitTime << 1);
 
   if (timer < 0)
     return -1;
   else if (timer < g_shortBitTime)
   {
-    if (WaitPinHighLow(g_bitTime * 2) < 0) return -1;
+    if (WaitPinHighLow(g_bitTime << 1) < 0) return -1;
     return 0;
   }
   else
@@ -245,7 +237,7 @@ static int8_t ReadLeader()
   g_bitTime = 0;
 
   // Average the next 8 to get our bit timing
-  // NOTE: this has a window of around 4000us before we overflow
+  // NOTE: this has a window of around 4000µs before we overflow
   if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -10;
   g_bitTime += timer;
   if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -11;
@@ -312,7 +304,7 @@ static inline int16_t ReadByte()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// Arduino ////////////////////////////////////////////////////////////////////
+// Arduino
 ///////////////////////////////////////////////////////////////////////////////
 
 void setup()
