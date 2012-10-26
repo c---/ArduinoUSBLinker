@@ -31,14 +31,20 @@ Known issues:
 
   The default signaling rate over the servo wire is 136µs per bit or about
   7 kbps which is close to what an actual USB Linker uses. The fastest
-  supported signaling rate is 20µs (~50 kbps). See BITTIME below to change
-  the signaling rate.
+  supported signaling rate is 32µs (~31 kbps).
 
   Note that the default serial port rate is 115200 and this is separate from
   the servo wire signaling rate. Make sure your tools are using the same
   serial port rate. See SERIALRATE below.
   
 Version history:
+  0.5 Remove interrupt code. Some MultiWii boards can't do interrupts on all
+      of their ESC signal pins. This has more overhead which means a slower
+      maximum signaling rate.
+      
+      Add runtime configuration commands. The signal pin and bit rate are now
+      selectable at runtime. See the README for more information.
+  
   0.4 General code cleanup. Use bit shifting for all multiply and divide
       operations when possible.
       
@@ -58,6 +64,10 @@ Version history:
 
 ///////////////////////////////////////////////////////////////////////////////
 
+// Serial port
+#define SERIALRATE 115200
+#define SERIALTIMEOUT (F_CPU / (SERIALRATE >> 4))
+
 // Calculates ticks from microseconds
 #define MICROS(x) ((F_CPU / 1000000) * x)
 
@@ -66,121 +76,138 @@ Version history:
 
 #define LONGWAIT MICROS(1000)
 
-// Serial port
-#define SERIALRATE 115200
-#define SERIALTIMEOUT (F_CPU / (SERIALRATE >> 4))
+#define MIN_BITTIME 8
+#define MAX_BITTIME 136
+
+#define PININPUT  ((*g_signalDDR)  &= ~(1 << g_signalPinPortNum))
+#define PINOUTPUT ((*g_signalDDR)  |= (1 << g_signalPinPortNum))
+#define PINHIGH   ((*g_signalPORT) |= (1 << g_signalPinPortNum))
+#define PINLOW    ((*g_signalPORT) &= ~(1 << g_signalPinPortNum))
+
+#define PINREAD   ((*g_signalPIN) & (1 << g_signalPinPortNum))
 
 ///////////////////////////////////////////////////////////////////////////////
 // Globals
 ///////////////////////////////////////////////////////////////////////////////
 
 // Approximate microseconds for each bit when sending
-static uint16_t g_bitTimeSend = MICROS(136);
+static uint16_t g_bitTimeSend = MICROS(MAX_BITTIME);
 static uint16_t g_bitTimeSendLong = g_bitTimeSend >> 1;
 static uint16_t g_bitTimeSendShort = g_bitTimeSend >> 2;
 
 // Calculated leader timing for receive
 static uint16_t g_bitTime, g_shortBitTime;
 
-static volatile int8_t g_signalPin, g_bitTrigger;
-static volatile uint16_t g_lastBitTicks;
+static volatile uint8_t* g_signalDDR;
+static volatile uint8_t* g_signalPORT;
+static volatile uint8_t* g_signalPIN;
+static int8_t g_signalPinPortNum, g_signalPinNum;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Signal pin
 ///////////////////////////////////////////////////////////////////////////////
 
-static inline void SignalPinInit()
+static void SignalPinStatus(char* buf)
 {
-  SignalPinInput();
-  SignalPinHigh(); // Enable pull-up
+  int8_t pincnt = -8;
+  buf[0] = '\0';
   
-  if (g_signalPin == 18) // INT0
-  {
-    EICRA = (1 << ISC01) | (1 << ISC00);
-    PCICR = 0;
+  #if defined(PORTB)
+    sprintf(&buf[strlen(buf)], "PORTB: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTC)
+    sprintf(&buf[strlen(buf)], "PORTC: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTD)
+    sprintf(&buf[strlen(buf)], "PORTD: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTE)
+    sprintf(&buf[strlen(buf)], "PORTE: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTF)
+    sprintf(&buf[strlen(buf)], "PORTF: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTG)
+    sprintf(&buf[strlen(buf)], "PORTG: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTH)
+    sprintf(&buf[strlen(buf)], "PORTH: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTI)
+    sprintf(&buf[strlen(buf)], "PORTI: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTJ)
+    sprintf(&buf[strlen(buf)], "PORTJ: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTK)
+    sprintf(&buf[strlen(buf)], "PORTK: %d\r\n", (pincnt += 8));
+  #endif
+  #if defined(PORTL)
+    sprintf(&buf[strlen(buf)], "PORTL: %d\r\n", (pincnt += 8));
+  #endif
+  
+  #if defined(PORTA)
+    sprintf(&buf[strlen(buf)], "PORTA: %d\r\n", (pincnt += 8));
+  #endif
+}
+
+#define SETUP_PORT(x) \
+  if (pin < (pincnt += 8)) \
+  { \
+    g_signalDDR = &DDR##x; \
+    g_signalPORT = &PORT##x; \
+    g_signalPIN = &PIN##x; \
+    g_signalPinPortNum = pin - (pincnt - 8); \
+    goto finished; \
   }
-  else if (g_signalPin == 19) // INT1
-  {
-    EICRA = (1 << ISC11) | (1 << ISC10);
-    PCICR = 0;
-  }
-  else if (g_signalPin > 15)
-  {
-    PCICR = (1 << PCIE2);
-    EICRA = 0;
-  }
-  else if (g_signalPin > 7)
-  {
-    PCICR = (1 << PCIE1);
-    EICRA = 0;
-  }
-  else
-  {
-    PCICR = (1 << PCIE0);
-    EICRA = 0;
-  }
-}
-
-static inline void SignalPinEnable()
+  
+static inline void SignalPinInit(int8_t pin)
 {
-  if (g_signalPin == 18) // INT0
-    EIMSK = (1 << INT0);
-  else if (g_signalPin == 19) // INT1
-    EIMSK = (1 << INT1);
-  else if (g_signalPin > 15)
-    PCMSK2 = (1 << (g_signalPin - 16));
-  else if (g_signalPin > 7)
-    PCMSK1 = (1 << (g_signalPin - 8));
-  else
-    PCMSK0 = (1 << g_signalPin);
-}
+  int8_t pincnt = 0;
+  
+  g_signalPinNum = pin;
 
-static inline void SignalPinDisable()
-{
-  EIMSK = 0;
-  PCMSK2 = 0;
-  PCMSK1 = 0;
-  PCMSK0 = 0;
-}
+  #if defined(PORTB)
+    SETUP_PORT(B);
+  #endif
+  #if defined(PORTC)
+    SETUP_PORT(C);
+  #endif
+  #if defined(PORTD)
+    SETUP_PORT(D);
+  #endif
+  #if defined(PORTE)
+    SETUP_PORT(E);
+  #endif
+  #if defined(PORTF)
+    SETUP_PORT(F);
+  #endif
+  #if defined(PORTG)
+    SETUP_PORT(G);
+  #endif
+  #if defined(PORTH)
+    SETUP_PORT(H);
+  #endif
+  #if defined(PORTI)
+    SETUP_PORT(I);
+  #endif
+  #if defined(PORTJ)
+    SETUP_PORT(J);
+  #endif
+  #if defined(PORTK)
+    SETUP_PORT(K);
+  #endif
+  #if defined(PORTL)
+    SETUP_PORT(L);
+  #endif
+  
+  #if defined(PORTA)
+    SETUP_PORT(A);
+  #endif
 
-static inline void SignalPinInput()
-{
-  if (g_signalPin > 15)
-    DDRD &= ~(1 << (g_signalPin - 16));
-  else if (g_signalPin > 7)
-    DDRC &= ~(1 << (g_signalPin - 8));
-  else
-    DDRB &= ~(1 << g_signalPin);
-}
-
-static inline void SignalPinOutput()
-{
-  if (g_signalPin > 15)
-    DDRD |= (1 << (g_signalPin - 16));
-  else if (g_signalPin > 7)
-    DDRC |= (1 << (g_signalPin - 8));
-  else
-    DDRB |= (1 << g_signalPin);
-}
-
-static inline void SignalPinHigh()
-{
-  if (g_signalPin > 15)
-    PORTD |= (1 << (g_signalPin - 16));
-  else if (g_signalPin > 7)
-    PORTC |= (1 << (g_signalPin - 8));
-  else
-    PORTB |= (1 << g_signalPin);
-}
-
-static inline void SignalPinLow()
-{
-  if (g_signalPin > 15)
-    PORTD &= ~(1 << (g_signalPin - 16));
-  else if (g_signalPin > 7)
-    PORTC &= ~(1 << (g_signalPin - 8));
-  else
-    PORTB &= ~(1 << g_signalPin);
+finished:  
+  PININPUT;
+  PINHIGH; // Enable pull-up
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -194,21 +221,21 @@ static inline void delayTicks(uint16_t count)
 
 static inline void Send1()
 {
-  SignalPinHigh();
+  PINHIGH;
   LONGBITDELAY;
-  SignalPinLow();
+  PINLOW;
   LONGBITDELAY;
 }
 
 static inline void Send0()
 {
-  SignalPinHigh();
+  PINHIGH;
   SHORTBITDELAY;
-  SignalPinLow();
+  PINLOW;
   SHORTBITDELAY;
-  SignalPinHigh();
+  PINHIGH;
   SHORTBITDELAY;
-  SignalPinLow();
+  PINLOW;
   SHORTBITDELAY;
 }
 
@@ -227,53 +254,22 @@ static inline void SendByte(uint8_t b)
 ///////////////////////////////////////////////////////////////////////////////
 // RECEIVE on signal pin
 ///////////////////////////////////////////////////////////////////////////////
-static inline void Signal()
-{
-  g_lastBitTicks = TCNT1;
-  TCNT1 = 0;
-  g_bitTrigger = 1;
-}
-
-ISR(INT0_vect)
-{
-  Signal();
-}
-
-ISR(INT1_vect)
-{
-  Signal();
-}
-
-/* Conflicts with serial port
-ISR(PCINT2_vect)
-{
-  if (PIND & (1 << (g_signalPin - 16)))
-    Signal();
-}
-*/
-
-ISR(PCINT1_vect)
-{
-  if (PINC & (1 << (g_signalPin - 8)))
-    Signal();
-}
-
-ISR(PCINT0_vect)
-{
-  if (PINB & (1 << g_signalPin))
-    Signal();
-}
 
 // NOTE: This has a maximum wait time of about 2000µs before it overflows
 static inline int16_t WaitPinHighLow(uint16_t timeout)
 {
-  while (g_bitTrigger == 0)
+  while (PINREAD)
     if (TCNT1 > timeout)
       return -1;
 
-  g_bitTrigger = 0;
+  while (!PINREAD)
+    if (TCNT1 > timeout)
+      return -1;
 
-  return g_lastBitTicks;
+  uint16_t last = TCNT1;
+  TCNT1 = 0;
+  
+  return last;
 }
 
 static inline int8_t ReadBit()
@@ -380,8 +376,6 @@ static inline int16_t ReadByte()
 
 void setup()
 {
-  g_signalPin = 18; // INT0
-  
   Serial.begin(SERIALRATE);
 
   cli();
@@ -390,9 +384,7 @@ void setup()
   TCCR1B = (1 << CS10);
   TCCR1A = 0;
 
-  // Signal pin timer interrupt
-  SignalPinInit();
-  SignalPinEnable();
+  SignalPinInit(18); // INT0
 
   sei();
 }
@@ -408,9 +400,6 @@ void loop()
     b = Serial.read();
     if (b >= 0)
     {
-      // Disable signal pin timer interrupt
-      SignalPinDisable();
-  
       buflen = 3;
       buf[buflen++] = b;
   
@@ -428,57 +417,56 @@ void loop()
       if (strncmp("USBLINKER:SELECT:", (const char*)&buf[3], 17) == 0)
       {
         buf[buflen] = '\0';
-        g_signalPin = atoi((const char*)&buf[20]);
-        
-        SignalPinInit();
+        SignalPinInit(atoi((const char*)&buf[20]));
       }
       else if (strncmp("USBLINKER:INIT:", (const char*)&buf[3], 15) == 0)
       {
         buf[buflen] = '\0';
-        int8_t oldpin = g_signalPin;
-        g_signalPin = atoi((const char*)&buf[18]);
-        
-        SignalPinInput();
-        SignalPinHigh();
-        
-        g_signalPin = oldpin;
+        int8_t oldpin = g_signalPinNum;
+        SignalPinInit(atoi((const char*)&buf[18]));
+        PININPUT;
+        PINHIGH;
+        SignalPinInit(oldpin);
       }
       else if (strncmp("USBLINKER:BITTIME:", (const char*)&buf[3], 18) == 0)
       {
         buf[buflen] = '\0';
         g_bitTimeSend = atoi((const char*)&buf[21]);
 
-        if (g_bitTimeSend < 8 || g_bitTimeSend > 136)
-          g_bitTimeSend = 136;
+        if (g_bitTimeSend < MIN_BITTIME || g_bitTimeSend > MAX_BITTIME)
+          g_bitTimeSend = MAX_BITTIME;
 
         g_bitTimeSend = MICROS(g_bitTimeSend);
         g_bitTimeSendLong = g_bitTimeSend >> 1;
         g_bitTimeSendShort = g_bitTimeSend >> 2;
       }
+      else if (strncmp("USBLINKER:STATUS:", (const char*)&buf[3], 17) == 0)
+      {
+        sprintf((char*)&buf[3], "SIGNAL PIN: %d\r\nBITTIME: %dus\r\n", g_signalPinNum, g_bitTimeSend / (F_CPU / 1000000));
+        Serial.write((const char*)&buf[3]);
+        SignalPinStatus((char*)&buf[3]);
+        Serial.write((const char*)&buf[3]);
+      }
       else
       {
-        SignalPinOutput();
+        PINOUTPUT;
     
         // Send data over signal pin
         for (i = 0; i < buflen; i++)
           SendByte(buf[i]);
     
         // Trailer
-        SignalPinHigh();
+        PINHIGH;
         SHORTBITDELAY;
-    
-        SignalPinInput(); // Pull-up is enabled from previous PINHIGH
-      }
-      
-      SignalPinEnable();
-    }
-    else if (g_bitTrigger)
-    {
-      // Buffer data from signal pin then write to serial port
 
-      g_bitTrigger = 0;
+        PININPUT; // Pull-up is enabled from previous PINHIGH
+      }
+    }
+    else if (PINREAD)
+    {
       buflen = 3;
 
+      // Buffer data from signal pin then write to serial port
       if (ReadLeader() == 0)
       {
         while ((b = ReadByte()) >= 0)
