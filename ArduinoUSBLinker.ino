@@ -65,33 +65,33 @@ Version history:
 ///////////////////////////////////////////////////////////////////////////////
 
 // Serial port
-#define SERIALRATE 115200
-#define SERIALTIMEOUT (F_CPU / (SERIALRATE >> 4))
+#define AUL_SERIALRATE 115200
+#define AUL_SERIALTIMEOUT (F_CPU / (AUL_SERIALRATE >> 4))
 
 // Calculates ticks from microseconds
-#define MICROS(x) ((F_CPU / 1000000) * x)
+#define AUL_MICROS(x) ((F_CPU / 1000000) * x)
 
-#define LONGBITDELAY delayTicks(g_bitTimeSendLong)
-#define SHORTBITDELAY delayTicks(g_bitTimeSendShort)
+#define AUL_LONGBITDELAY delayTicks(g_bitTimeSendLong)
+#define AUL_SHORTBITDELAY delayTicks(g_bitTimeSendShort)
 
-#define LONGWAIT MICROS(1000)
+#define AUL_LONGWAIT AUL_MICROS(1000)
 
-#define MIN_BITTIME 8
-#define MAX_BITTIME 136
+#define AUL_MIN_BITTIME 8
+#define AUL_MAX_BITTIME 136
 
-#define PININPUT  ((*g_signalDDR)  &= ~(1 << g_signalPinPortNum))
-#define PINOUTPUT ((*g_signalDDR)  |= (1 << g_signalPinPortNum))
-#define PINHIGH   ((*g_signalPORT) |= (1 << g_signalPinPortNum))
-#define PINLOW    ((*g_signalPORT) &= ~(1 << g_signalPinPortNum))
+#define AUL_PININPUT  ((*g_signalDDR)  &= ~(1 << g_signalPinPortNum))
+#define AUL_PINOUTPUT ((*g_signalDDR)  |= (1 << g_signalPinPortNum))
+#define AUL_PINHIGH   ((*g_signalPORT) |= (1 << g_signalPinPortNum))
+#define AUL_PINLOW    ((*g_signalPORT) &= ~(1 << g_signalPinPortNum))
 
-#define PINREAD   ((*g_signalPIN) & (1 << g_signalPinPortNum))
+#define AUL_PINREAD   ((*g_signalPIN) & (1 << g_signalPinPortNum))
 
 ///////////////////////////////////////////////////////////////////////////////
 // Globals
 ///////////////////////////////////////////////////////////////////////////////
 
 // Approximate microseconds for each bit when sending
-static uint16_t g_bitTimeSend = MICROS(MAX_BITTIME);
+static uint16_t g_bitTimeSend = AUL_MICROS(AUL_MAX_BITTIME);
 static uint16_t g_bitTimeSendLong = g_bitTimeSend >> 1;
 static uint16_t g_bitTimeSendShort = g_bitTimeSend >> 2;
 
@@ -109,105 +109,108 @@ static int8_t g_signalPinPortNum, g_signalPinNum;
 
 static void SignalPinStatus(char* buf)
 {
+  #define AUL_WRITE_PORT_INFO(x) \
+    sprintf(&buf[strlen(buf)], "PORT"#x": %d\r\n", (pincnt += 8));
+    
   int8_t pincnt = -8;
   buf[0] = '\0';
-  
+
   #if defined(PORTB)
-    sprintf(&buf[strlen(buf)], "PORTB: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(B)
   #endif
   #if defined(PORTC)
-    sprintf(&buf[strlen(buf)], "PORTC: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(C)
   #endif
   #if defined(PORTD)
-    sprintf(&buf[strlen(buf)], "PORTD: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(D)
   #endif
   #if defined(PORTE)
-    sprintf(&buf[strlen(buf)], "PORTE: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(E)
   #endif
   #if defined(PORTF)
-    sprintf(&buf[strlen(buf)], "PORTF: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(F)
   #endif
   #if defined(PORTG)
-    sprintf(&buf[strlen(buf)], "PORTG: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(G)
   #endif
   #if defined(PORTH)
-    sprintf(&buf[strlen(buf)], "PORTH: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(H)
   #endif
   #if defined(PORTI)
-    sprintf(&buf[strlen(buf)], "PORTI: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(I)
   #endif
   #if defined(PORTJ)
-    sprintf(&buf[strlen(buf)], "PORTJ: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(J)
   #endif
   #if defined(PORTK)
-    sprintf(&buf[strlen(buf)], "PORTK: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(K)
   #endif
   #if defined(PORTL)
-    sprintf(&buf[strlen(buf)], "PORTL: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(L)
   #endif
   
   #if defined(PORTA)
-    sprintf(&buf[strlen(buf)], "PORTA: %d\r\n", (pincnt += 8));
+    AUL_WRITE_PORT_INFO(A)
   #endif
 }
 
-#define SETUP_PORT(x) \
-  if (pin < (pincnt += 8)) \
-  { \
-    g_signalDDR = &DDR##x; \
-    g_signalPORT = &PORT##x; \
-    g_signalPIN = &PIN##x; \
-    g_signalPinPortNum = pin - (pincnt - 8); \
-    goto finished; \
-  }
-  
-static inline void SignalPinInit(int8_t pin)
+static void SignalPinInit(int8_t pin)
 {
+  #define AUL_SETUP_PORT(x) \
+    if (pin < (pincnt += 8)) \
+    { \
+      g_signalDDR = &DDR##x; \
+      g_signalPORT = &PORT##x; \
+      g_signalPIN = &PIN##x; \
+      g_signalPinPortNum = pin - (pincnt - 8); \
+      goto finished; \
+    }
+  
   int8_t pincnt = 0;
   
   g_signalPinNum = pin;
 
   #if defined(PORTB)
-    SETUP_PORT(B);
+    AUL_SETUP_PORT(B);
   #endif
   #if defined(PORTC)
-    SETUP_PORT(C);
+    AUL_SETUP_PORT(C);
   #endif
   #if defined(PORTD)
-    SETUP_PORT(D);
+    AUL_SETUP_PORT(D);
   #endif
   #if defined(PORTE)
-    SETUP_PORT(E);
+    AUL_SETUP_PORT(E);
   #endif
   #if defined(PORTF)
-    SETUP_PORT(F);
+    AUL_SETUP_PORT(F);
   #endif
   #if defined(PORTG)
-    SETUP_PORT(G);
+    AUL_SETUP_PORT(G);
   #endif
   #if defined(PORTH)
-    SETUP_PORT(H);
+    AUL_SETUP_PORT(H);
   #endif
   #if defined(PORTI)
-    SETUP_PORT(I);
+    AUL_SETUP_PORT(I);
   #endif
   #if defined(PORTJ)
-    SETUP_PORT(J);
+    AUL_SETUP_PORT(J);
   #endif
   #if defined(PORTK)
-    SETUP_PORT(K);
+    AUL_SETUP_PORT(K);
   #endif
   #if defined(PORTL)
-    SETUP_PORT(L);
+    AUL_SETUP_PORT(L);
   #endif
   
   #if defined(PORTA)
-    SETUP_PORT(A);
+    AUL_SETUP_PORT(A);
   #endif
 
 finished:  
-  PININPUT;
-  PINHIGH; // Enable pull-up
+  AUL_PININPUT;
+  AUL_PINHIGH; // Enable pull-up
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -221,22 +224,22 @@ static inline void delayTicks(uint16_t count)
 
 static inline void Send1()
 {
-  PINHIGH;
-  LONGBITDELAY;
-  PINLOW;
-  LONGBITDELAY;
+  AUL_PINHIGH;
+  AUL_LONGBITDELAY;
+  AUL_PINLOW;
+  AUL_LONGBITDELAY;
 }
 
 static inline void Send0()
 {
-  PINHIGH;
-  SHORTBITDELAY;
-  PINLOW;
-  SHORTBITDELAY;
-  PINHIGH;
-  SHORTBITDELAY;
-  PINLOW;
-  SHORTBITDELAY;
+  AUL_PINHIGH;
+  AUL_SHORTBITDELAY;
+  AUL_PINLOW;
+  AUL_SHORTBITDELAY;
+  AUL_PINHIGH;
+  AUL_SHORTBITDELAY;
+  AUL_PINLOW;
+  AUL_SHORTBITDELAY;
 }
 
 static inline void SendByte(uint8_t b)
@@ -258,11 +261,11 @@ static inline void SendByte(uint8_t b)
 // NOTE: This has a maximum wait time of about 2000µs before it overflows
 static inline int16_t WaitPinHighLow(uint16_t timeout)
 {
-  while (PINREAD)
+  while (AUL_PINREAD)
     if (TCNT1 > timeout)
       return -1;
 
-  while (!PINREAD)
+  while (!AUL_PINREAD)
     if (TCNT1 > timeout)
       return -1;
 
@@ -290,36 +293,36 @@ static inline int8_t ReadBit()
 static int8_t ReadLeader()
 {
   // Skip the first few to let things stabilize
-  if (WaitPinHighLow(LONGWAIT) < 0) return -1;
-  if (WaitPinHighLow(LONGWAIT) < 0) return -2;
-  if (WaitPinHighLow(LONGWAIT) < 0) return -3;
-  if (WaitPinHighLow(LONGWAIT) < 0) return -4;
-  if (WaitPinHighLow(LONGWAIT) < 0) return -5;
-  if (WaitPinHighLow(LONGWAIT) < 0) return -6;
-  if (WaitPinHighLow(LONGWAIT) < 0) return -7;
-  if (WaitPinHighLow(LONGWAIT) < 0) return -8;
-  if (WaitPinHighLow(LONGWAIT) < 0) return -9;
+  if (WaitPinHighLow(AUL_LONGWAIT) < 0) return -1;
+  if (WaitPinHighLow(AUL_LONGWAIT) < 0) return -2;
+  if (WaitPinHighLow(AUL_LONGWAIT) < 0) return -3;
+  if (WaitPinHighLow(AUL_LONGWAIT) < 0) return -4;
+  if (WaitPinHighLow(AUL_LONGWAIT) < 0) return -5;
+  if (WaitPinHighLow(AUL_LONGWAIT) < 0) return -6;
+  if (WaitPinHighLow(AUL_LONGWAIT) < 0) return -7;
+  if (WaitPinHighLow(AUL_LONGWAIT) < 0) return -8;
+  if (WaitPinHighLow(AUL_LONGWAIT) < 0) return -9;
 
   int16_t timer;
   g_bitTime = 0;
 
   // Average the next 8 to get our bit timing
   // NOTE: this has a window of around 4000µs before we overflow
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -10;
+  if ((timer = WaitPinHighLow(AUL_LONGWAIT)) < 0) return -10;
   g_bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -11;
+  if ((timer = WaitPinHighLow(AUL_LONGWAIT)) < 0) return -11;
   g_bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -12;
+  if ((timer = WaitPinHighLow(AUL_LONGWAIT)) < 0) return -12;
   g_bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -13;
+  if ((timer = WaitPinHighLow(AUL_LONGWAIT)) < 0) return -13;
   g_bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -14;
+  if ((timer = WaitPinHighLow(AUL_LONGWAIT)) < 0) return -14;
   g_bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -15;
+  if ((timer = WaitPinHighLow(AUL_LONGWAIT)) < 0) return -15;
   g_bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -16;
+  if ((timer = WaitPinHighLow(AUL_LONGWAIT)) < 0) return -16;
   g_bitTime += timer;
-  if ((timer = WaitPinHighLow(LONGWAIT)) < 0) return -17;
+  if ((timer = WaitPinHighLow(AUL_LONGWAIT)) < 0) return -17;
   g_bitTime += timer;
 
   g_bitTime >>= 3;
@@ -376,7 +379,7 @@ static inline int16_t ReadByte()
 
 void setup()
 {
-  Serial.begin(SERIALRATE);
+  Serial.begin(AUL_SERIALRATE);
 
   cli();
 
@@ -412,8 +415,8 @@ void loop()
            buf[buflen++] = b;
            TCNT1 = 0;
          }
-      } while (TCNT1 < SERIALTIMEOUT);
-  
+      } while (TCNT1 < AUL_SERIALTIMEOUT);
+
       if (strncmp("USBLINKER:SELECT:", (const char*)&buf[3], 17) == 0)
       {
         buf[buflen] = '\0';
@@ -424,8 +427,8 @@ void loop()
         buf[buflen] = '\0';
         int8_t oldpin = g_signalPinNum;
         SignalPinInit(atoi((const char*)&buf[18]));
-        PININPUT;
-        PINHIGH;
+        AUL_PININPUT;
+        AUL_PINHIGH;
         SignalPinInit(oldpin);
       }
       else if (strncmp("USBLINKER:BITTIME:", (const char*)&buf[3], 18) == 0)
@@ -433,10 +436,10 @@ void loop()
         buf[buflen] = '\0';
         g_bitTimeSend = atoi((const char*)&buf[21]);
 
-        if (g_bitTimeSend < MIN_BITTIME || g_bitTimeSend > MAX_BITTIME)
-          g_bitTimeSend = MAX_BITTIME;
+        if (g_bitTimeSend < AUL_MIN_BITTIME || g_bitTimeSend > AUL_MAX_BITTIME)
+          g_bitTimeSend = AUL_MAX_BITTIME;
 
-        g_bitTimeSend = MICROS(g_bitTimeSend);
+        g_bitTimeSend = AUL_MICROS(g_bitTimeSend);
         g_bitTimeSendLong = g_bitTimeSend >> 1;
         g_bitTimeSendShort = g_bitTimeSend >> 2;
       }
@@ -449,20 +452,20 @@ void loop()
       }
       else
       {
-        PINOUTPUT;
+        AUL_PINOUTPUT;
     
         // Send data over signal pin
         for (i = 0; i < buflen; i++)
           SendByte(buf[i]);
     
         // Trailer
-        PINHIGH;
-        SHORTBITDELAY;
+        AUL_PINHIGH;
+        AUL_SHORTBITDELAY;
 
-        PININPUT; // Pull-up is enabled from previous PINHIGH
+        AUL_PININPUT; // Pull-up is enabled from previous PINHIGH
       }
     }
-    else if (PINREAD)
+    else if (AUL_PINREAD)
     {
       buflen = 3;
 
