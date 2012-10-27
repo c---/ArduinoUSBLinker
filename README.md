@@ -1,6 +1,12 @@
 ArduinoUSBLinker
 ================
 
+ ** WARNING **
+   Always use great care when working with powered ESC's that are connected
+   to motors. Especially when reflashing firmware and reseting devices it is
+   easily possible to get a situation where the motors start running on their
+   own.
+
 To use:
 
  * Load this sketch on to your Arduino or other ATmega.
@@ -34,7 +40,9 @@ Advanced usage:
    Supported commands are:
    $M&lt;In : Initializes pin number n by turning on its pull-up resistor.
               This will hold the ESC in bootloader mode. All ESC pins should
-              be initialized first to prevent accidental motor power-up.
+              be initialized first to help prevent accidental motor power-up.
+              However, always consider the motors live and dangerous at all
+              times.
               Example: "$M&lt;I1" will initialize pin 1 (PB1).
 
    $M&lt;Pn : Select pin number n. This also set the pull-up resistor for the
@@ -42,16 +50,16 @@ Advanced usage:
               Example: "$M&lt;P18" will select pin 18 (PD3/INT1).
 
    $M&lt;Bn : Sets the bit rate in microseconds.
-              Example: "$M&lt;B32" will set a 32us signaling rate.
+              Example: "$M&lt;B32" will set a 32µs signaling rate.
 
-   All commands, including invalid commands will return the current settings.
-   The settings are followed by a list of all the ports and the starting pin
-   number for each.
+   All commands, including invalid commands that start with "$M&lt;" will
+   return the current settings. The settings are followed by a list of all the
+   ports and the starting pin number for each.
 
    Example status line:
    P18:B136:PINS:B0:C8:D16:
 
-   Pin 18 is selected, bit rate is 136us and there are 3 ports:
+   Pin 18 is selected, bit rate is 136µs and there are 3 ports:
    B starts with pin 0.
    C starts with pin 8.
    D starts with pin 16.
@@ -61,11 +69,12 @@ Advanced usage:
 
  * This sketch can be integrated with MultiWii. Copy the "ArduinoUSBLinker.ino"
    file in to the MultiWii sketch folder and rename it as "ArduinoUSBLinker.h".
-   Apply the supplied patch "Serial.patch" to the "Serial.ino" file.
+   Apply the supplied patch "Serial.patch" to the MultiWii "Serial.ino" file.
 
    The ArduinoUSBLinker code adds about 3K to the firmware size and depending
    on which MultiWii options are configured there may not be enough room for
-   everything.
+   everything. Efforts will be made in the future to reduce the size but it is
+   unknown how much can be done.
    
    To enter the ArduinoUSBLinker mode a MultiWii command 211 must be sent using
    the MultiWii serial protocol. This is a binary string of the following
@@ -75,10 +84,10 @@ Advanced usage:
    Note the "211" command is subject to change and is not part of the official
    MultiWii code base.
 
-   Once in ArduinoUSBLinker mode it behaves as normal. However, the default
-   baud rate is 19200 and it is not recommended to change this to a faster
-   speed as higher rates are unreliable when running in MultiWii mode. Note
-   that the baud rate will most likely change when entering ArduinoUSBLinker
-   mode from normal MultiWii mode.
+   Once in ArduinoUSBLinker mode it behaves as normal over the serial port.
+   However, the default baud rate is 19200 and it is not recommended to change
+   this to a faster speed as higher rates are unreliable when running in
+   MultiWii mode. Note that the baud rate will most likely change to 19200 when
+   entering ArduinoUSBLinker mode from normal MultiWii mode.
 
    To exit ArduinoUSBLinker mode reset the device.
