@@ -1,0 +1,28 @@
+--- Serial.ino.old   2012-10-25 13:00:31.480832589 -0400
++++ Serial.ino 2012-10-27 15:05:09.924626386 -0400
+@@ -68,6 +68,7 @@
+ #define MSP_RESET_CONF           208   //in message          no param
+ #define MSP_SET_WP               209   //in message          sets a given WP (WP#,lat, lon, alt, flags)
+ #define MSP_SELECT_SETTING       210   //in message          Select Setting Number (0-2)
++#define MSP_SELECT_USBLINKER     211   //in message          Select USB Linker mode
+ 
+ #define MSP_SPEK_BIND            240   //in message          no param
+ 
+@@ -255,6 +256,9 @@
+      }
+      headSerialReply(0);
+      break;
++   case MSP_SELECT_USBLINKER:
++     { void AUL_loop(uint8_t); AUL_loop(CURRENTPORT); }
++     break;
+    case MSP_IDENT:
+      headSerialReply(7);
+      serialize8(VERSION);   // multiwii version
+@@ -809,4 +813,6 @@
+ }
+ #else
+ void debugmsg_append_str(const char *str) {};
+-#endif
++#endif
++
++#include "ArduinoUSBLinker.h"
