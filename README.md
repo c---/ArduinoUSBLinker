@@ -47,7 +47,7 @@ Advanced usage:
 
    $M&lt;Pn : Select pin number n. This also set the pull-up resistor for the
               pin. The currently selected pin will be used for signaling.
-              Example: "$M&lt;P18" will select pin 18 (PD3/INT1).
+              Example: "$M&lt;P18" will select pin 18 (PD2/INT0).
 
    $M&lt;Bn : Sets the bit rate in microseconds.
               Example: "$M&lt;B32" will set a 32µs signaling rate.
@@ -64,12 +64,13 @@ Advanced usage:
    C starts with pin 8.
    D starts with pin 16.
 
-   This idicates pin 0-7 is PB0..7, pin 8-15 is PC0..7, pin 16-24 is PD0..7,
+   This indicates pin 0-7 is PB0..7, pin 8-15 is PC0..7, pin 16-24 is PD0..7,
    and so on. These are the pin numbers used with the above commands.
 
- * This sketch can be integrated with MultiWii. Copy the "ArduinoUSBLinker.ino"
-   file in to the MultiWii sketch folder and rename it as "ArduinoUSBLinker.h".
-   Apply the supplied patch "Serial.patch" to the MultiWii "Serial.ino" file.
+ * This sketch can be integrated with MultiWii (MultiWii\_shared latest SVN
+   source). Copy the "ArduinoUSBLinker.ino" file in to the MultiWii sketch
+   folder and rename it as "ArduinoUSBLinker.h". Apply the supplied patch
+   "Serial.patch" to the MultiWii "Serial.ino" file.
 
    The ArduinoUSBLinker code adds about 3K to the firmware size and depending
    on which MultiWii options are configured there may not be enough room for
@@ -78,8 +79,10 @@ Advanced usage:
    
    To enter the ArduinoUSBLinker mode a MultiWii command 211 must be sent using
    the MultiWii serial protocol. This is a binary string of the following
-   6 characters (in hex): 24  4D  3C  00        D3    D3
-                          '$' 'M' '<' <datalen> <211> <checksum>
+   6 characters (in hex): <code>
+       24  4D  3C  00        D3    D3
+       '$' 'M' '&lt;' &lt;datalen&gt; &lt;211&gt; &lt;checksum&gt;
+</code>
 
    Note the "211" command is subject to change and is not part of the official
    MultiWii code base.
