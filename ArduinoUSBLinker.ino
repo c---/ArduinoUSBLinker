@@ -110,10 +110,14 @@ static int8_t g_signalPinPortNum, g_signalPinNum;
 static void SignalPinStatus(char* buf)
 {
   #define AUL_WRITE_PORT_INFO(x) \
-    sprintf(&buf[strlen(buf)], "PORT"#x": %d\r\n", (pincnt += 8));
-    
-  int8_t pincnt = -8;
-  buf[0] = '\0';
+    *pos++ = #x[0]; \
+    itoa(pincnt, pos, 10); \
+    pos = strchr(pos, '\0'); \
+    *pos++ = ':'; \
+    pincnt += 8;
+
+  char* pos = buf;
+  int8_t pincnt = 0;
 
   #if defined(PORTB)
     AUL_WRITE_PORT_INFO(B)
@@ -152,6 +156,8 @@ static void SignalPinStatus(char* buf)
   #if defined(PORTA)
     AUL_WRITE_PORT_INFO(A)
   #endif
+  
+  *pos = '\0';
 }
 
 static void SignalPinInit(int8_t pin)
@@ -417,38 +423,48 @@ void loop()
          }
       } while (TCNT1 < AUL_SERIALTIMEOUT);
 
-      if (strncmp("USBLINKER:SELECT:", (const char*)&buf[3], 17) == 0)
+      if (buf[3] == '$' && buf[4] == '<' && buf[5] == ':')
       {
-        buf[buflen] = '\0';
-        SignalPinInit(atoi((const char*)&buf[20]));
-      }
-      else if (strncmp("USBLINKER:INIT:", (const char*)&buf[3], 15) == 0)
-      {
-        buf[buflen] = '\0';
-        int8_t oldpin = g_signalPinNum;
-        SignalPinInit(atoi((const char*)&buf[18]));
-        AUL_PININPUT;
-        AUL_PINHIGH;
-        SignalPinInit(oldpin);
-      }
-      else if (strncmp("USBLINKER:BITTIME:", (const char*)&buf[3], 18) == 0)
-      {
-        buf[buflen] = '\0';
-        g_bitTimeSend = atoi((const char*)&buf[21]);
-
-        if (g_bitTimeSend < AUL_MIN_BITTIME || g_bitTimeSend > AUL_MAX_BITTIME)
-          g_bitTimeSend = AUL_MAX_BITTIME;
-
-        g_bitTimeSend = AUL_MICROS(g_bitTimeSend);
-        g_bitTimeSendLong = g_bitTimeSend >> 1;
-        g_bitTimeSendShort = g_bitTimeSend >> 2;
-      }
-      else if (strncmp("USBLINKER:STATUS:", (const char*)&buf[3], 17) == 0)
-      {
-        sprintf((char*)&buf[3], "SIGNAL PIN: %d\r\nBITTIME: %dus\r\n", g_signalPinNum, g_bitTimeSend / (F_CPU / 1000000));
-        Serial.write((const char*)&buf[3]);
-        SignalPinStatus((char*)&buf[3]);
-        Serial.write((const char*)&buf[3]);
+        switch(buf[6])
+        {
+        case '-': { // STATUS
+          char* pos = (char*)&buf[3];
+          *pos++ = 'P';
+          itoa(g_signalPinNum, pos, 10);
+          pos = strchr(pos, '\0');
+          *pos++ = ':';
+          *pos++ = 'B';
+          itoa(g_bitTimeSend / (F_CPU / 1000000), pos, 10);
+          pos = strchr(pos, '\0');
+          *pos++ = ':';
+          
+          SignalPinStatus(pos);
+          
+          Serial.write((const char*)&buf[3]);
+          break; }
+        case 'B': { // BITTIME
+          g_bitTimeSend = atoi((const char*)&buf[7]);
+  
+          if (g_bitTimeSend < AUL_MIN_BITTIME || g_bitTimeSend > AUL_MAX_BITTIME)
+            g_bitTimeSend = AUL_MAX_BITTIME;
+  
+          g_bitTimeSend = AUL_MICROS(g_bitTimeSend);
+          g_bitTimeSendLong = g_bitTimeSend >> 1;
+          g_bitTimeSendShort = g_bitTimeSend >> 2;
+          break; }
+        case 'I': { // INIT
+          int8_t oldpin = g_signalPinNum;
+          SignalPinInit(atoi((const char*)&buf[7]));
+          AUL_PININPUT;
+          AUL_PINHIGH;
+          SignalPinInit(oldpin);
+          break; }
+        case 'S': // SELECT
+          SignalPinInit(atoi((const char*)&buf[7]));
+          break;
+        default:
+          break;
+        }
       }
       else
       {
