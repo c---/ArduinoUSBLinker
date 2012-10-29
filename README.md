@@ -69,8 +69,8 @@ Advanced usage:
 
  * This sketch can be integrated with MultiWii and has been tested with
    MultiWii\_shared latest SVN source. Copy the "ArduinoUSBLinker.ino" file in
-   to the MultiWii sketch folder and apply the supplied patch "Serial.patch" to
-   the MultiWii "Serial.ino" file.
+   to the MultiWii sketch folder and rename it as "ArduinoUSBLinker.h". Apply
+   the supplied patch "Serial.patch" to the MultiWii "Serial.ino" file.
 
    The ArduinoUSBLinker code adds about 3K to the firmware size and depending
    on which MultiWii options are configured there may not be enough room for
