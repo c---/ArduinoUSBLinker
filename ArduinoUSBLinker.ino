@@ -34,6 +34,9 @@ Known issues:
   serial port rate. See SERIALRATE below.
   
 Version history:
+  0.7 Code shrink. Removed the 'I' command because 'P' does the same thing.
+      Now adds ~1800 bytes to MultiWii.
+      
   0.6 Rework of the whole bit timing system. Improved performance across the
       board. Serial performance in MultiWii is better now and can be run at the
       full 115200 bps. Size is also reduced by a few hundred bytes. Default
@@ -81,15 +84,20 @@ Version history:
 
 #define AUL_SERIALTIMEOUT ((F_CPU >> 7) / (AUL_SERIALRATE >> 4))
 
-#define AUL_PININPUT  ((*g_signalDDR)  &= ~(1 << g_signalPinPortNum))
-#define AUL_PINOUTPUT ((*g_signalDDR)  |= (1 << g_signalPinPortNum))
-#define AUL_PINHIGH   ((*g_signalPORT) |= (1 << g_signalPinPortNum))
-#define AUL_PINLOW    ((*g_signalPORT) &= ~(1 << g_signalPinPortNum))
+#define AUL_PININPUT  ((*g_signalDDR)  &= ~(g_signalPinPortNum))
+#define AUL_PINOUTPUT ((*g_signalDDR)  |=  (g_signalPinPortNum))
+#define AUL_PINHIGH   ((*g_signalPORT) |=  (g_signalPinPortNum))
+#define AUL_PINLOW    ((*g_signalPORT) &= ~(g_signalPinPortNum))
 
-#define AUL_PINREAD   ((*g_signalPIN) & (1 << g_signalPinPortNum))
+#define AUL_PINREAD   ((*g_signalPIN) & (g_signalPinPortNum))
+
+#define AUL_DELAYTICKS(x) \
+  TCNT2 = 0; \
+  while (TCNT2 < (x));
 
 #define AUL_SYNC_PRESCALER \
-  { GTCCR = (1 << PSRASY); while (GTCCR & (1 << PSRASY)); }
+  GTCCR = (1 << PSRASY); \
+  while (GTCCR & (1 << PSRASY));
 
 ///////////////////////////////////////////////////////////////////////////////
 // Globals
@@ -106,6 +114,50 @@ static volatile uint8_t* g_signalDDR;
 static volatile uint8_t* g_signalPORT;
 static volatile uint8_t* g_signalPIN;
 static int8_t g_signalPinPortNum, g_signalPinNum;
+
+///////////////////////////////////////////////////////////////////////////////
+// stdlib type utility functions (mostly to save space)
+///////////////////////////////////////////////////////////////////////////////
+
+static char* itoa10(uint8_t n, char *b)
+{
+   uint8_t i = 0, s;
+   
+   do {
+      s = n % 10;
+      n = n / 10;
+      b[i++] = '0' + s;
+   } while (n > 0);
+
+   b[i] = '\0';
+   
+   // Reverse the string (uint8 only 3 chars max)
+   switch (i)
+   {
+   case 1:
+     break;
+   case 2:
+     s = b[0];
+     b[0] = b[1];
+     b[1] = s;
+     break;
+   case 3:
+   default:
+     s = b[0];
+     b[0] = b[2];
+     b[2] = s;
+     break;
+   }
+
+   return &b[i];
+}
+
+static uint8_t atoi8(const char* s)
+{
+  uint8_t i = 0;
+  while (*s) i = (i << 3) + (i << 1) + (*s++ - '0');
+  return(i);
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Serial port.  MultiWii helpers.
@@ -187,16 +239,16 @@ static void AUL_SerialInit(uint8_t port)
 #define AUL_SerialWrite(x) \
   { while (!((*g_serialUCSRA) & g_serialUDRE)); (*g_serialUDR) = (x); }
 
-static void AUL_SerialWriteBuf(const uint8_t* b, uint16_t len)
+static void AUL_SerialWriteBuf(const uint8_t* b, int16_t len)
 {
-  uint16_t i;
+  int16_t i;
   for (i = 0; i < len; i++)
     AUL_SerialWrite(b[i]);
 }
 
 static void AUL_SerialWriteStr(const char* b)
 {
-  uint16_t i;
+  int16_t i;
   for (i = 0; b[i] != '\0'; i++)
     AUL_SerialWrite(b[i]);
 }
@@ -241,19 +293,19 @@ static void SignalPinStatus(char* buf)
 {
   #define AUL_WRITE_PORT_INFO(x) \
     *pos++ = #x[0]; \
-    itoa(pincnt, pos, 10); \
-    pos = strchr(pos, '\0'); \
+    pos = itoa10(pincnt, pos); \
     *pos++ = ':'; \
     pincnt += 8;
 
   char* pos = buf;
   int8_t pincnt = 0;
 
-  *pos++ = 'P';
-  *pos++ = 'I';
-  *pos++ = 'N';
-  *pos++ = 'S';
-  *pos++ = ':';
+  pos[0] = 'P';
+  pos[1] = 'I';
+  pos[2] = 'N';
+  pos[3] = 'S';
+  pos[4] = ':';
+  pos += 5;
   
   #if defined(PORTB)
     AUL_WRITE_PORT_INFO(B)
@@ -304,7 +356,7 @@ static void SignalPinInit(int8_t pin)
       g_signalDDR = &DDR##x; \
       g_signalPORT = &PORT##x; \
       g_signalPIN = &PIN##x; \
-      g_signalPinPortNum = pin - (pincnt - 8); \
+      g_signalPinPortNum = (1 << (pin - (pincnt - 8))); \
       goto finished; \
     }
   
@@ -359,51 +411,43 @@ finished:
 // SENDING on signal pin
 ///////////////////////////////////////////////////////////////////////////////
 
-#define AUL_DelayTicks(x) \
-  { TCNT2 = 0; while (TCNT2 < (x)); }
-
-static void Send1()
-{
-  AUL_PINHIGH;
-  AUL_DelayTicks(g_bitTimeSend);
-  AUL_PINLOW;
-  AUL_DelayTicks(g_bitTimeSend);
-}
-
-static void Send0()
-{
-  AUL_PINHIGH;
-  AUL_DelayTicks(g_bitTimeSendHalf);
-  AUL_PINLOW;
-  AUL_DelayTicks(g_bitTimeSendHalf);
-  AUL_PINHIGH;
-  AUL_DelayTicks(g_bitTimeSendHalf);
-  AUL_PINLOW;
-  AUL_DelayTicks(g_bitTimeSendHalf);
-}
-
 static void SendByte(uint8_t b)
 {
-  (b & B00000001) ? Send1() : Send0();
-  (b & B00000010) ? Send1() : Send0();
-  (b & B00000100) ? Send1() : Send0();
-  (b & B00001000) ? Send1() : Send0();
-  (b & B00010000) ? Send1() : Send0();
-  (b & B00100000) ? Send1() : Send0();
-  (b & B01000000) ? Send1() : Send0();
-  (b & B10000000) ? Send1() : Send0();
+  uint8_t i;
+  for (i = 1; i; i <<= 1)
+  {
+    if (b & i)
+    {
+      AUL_PINHIGH;
+      AUL_DELAYTICKS(g_bitTimeSend);
+      AUL_PINLOW;
+      AUL_DELAYTICKS(g_bitTimeSend);
+    }
+    else
+    {
+      AUL_PINHIGH;
+      AUL_DELAYTICKS(g_bitTimeSendHalf);
+      AUL_PINLOW;
+      AUL_DELAYTICKS(g_bitTimeSendHalf);
+      AUL_PINHIGH;
+      AUL_DELAYTICKS(g_bitTimeSendHalf);
+      AUL_PINLOW;
+      AUL_DELAYTICKS(g_bitTimeSendHalf);
+    }
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // RECEIVE on signal pin
 ///////////////////////////////////////////////////////////////////////////////
 
-
 #define AUL_SPINPINHIGH \
-  { TCNT2 = 0; while (AUL_PINREAD) { if (TCNT2 > 250) goto timeout; } }
+  TCNT2 = 0; \
+  while (AUL_PINREAD) { if (TCNT2 > 250) goto timeout; }
 
 #define AUL_SPINPINLOW \
-  { TCNT2 = 0; while (!AUL_PINREAD) { if (TCNT2 > 250) goto timeout; } }
+  TCNT2 = 0; \
+  while (!AUL_PINREAD) { if (TCNT2 > 250) goto timeout; }
 
 #define AUL_READBIT \
   AUL_SPINPINLOW \
@@ -429,20 +473,19 @@ static int8_t ReadLeader()
   }
 
   AUL_SPINPINHIGH
+  AUL_SPINPINLOW
+  AUL_SPINPINHIGH
   g_bitTime = TCNT2;
 
   g_shortBitTime = (g_bitTime >> 1) + (g_bitTime >> 2);
 
   // Read until we get a 0 bit
-  for (i = 0; i < 24; i++)
+  while (1)
   {
-    int8_t b;
+    uint8_t b;
+    AUL_READBIT // Sets b to the bit value
     
-    AUL_READBIT
-
-    if (b < 0)
-      return -1;
-    else if (b == 0)
+    if (!b)
       return 0;
   }
 
@@ -468,10 +511,11 @@ void AUL_loop(uint8_t port)
   // Set timer2 to count ticks/8
   TCCR2B = (1 << CS21);
 
-  SignalPinInit(18); // INT0
+  SignalPinInit(18); // PD2/INT0
 
   // The buffer always has the leader at the start
-  uint8_t lastPin = 0, buf[1024] = { 0xFF, 0xFF, 0x7F };
+  uint8_t buf[1024] = { 0xFF, 0xFF, 0x7F };
+  uint8_t lastPin = 0;
   int16_t buflen, i;
 
   while (1)
@@ -504,7 +548,7 @@ void AUL_loop(uint8_t port)
         switch(buf[6])
         {
         case 'B': { // BITTIME
-          uint8_t t = atoi((const char*)&buf[7]);
+          uint8_t t = atoi8((const char*)&buf[7]);
   
           if (t < AUL_MIN_BITTIME)
             t = AUL_MIN_BITTIME;
@@ -514,15 +558,8 @@ void AUL_loop(uint8_t port)
           g_bitTimeSend = t;
           g_bitTimeSendHalf = (t >> 1);
           break; }
-        case 'I': { // INIT
-          int8_t oldpin = g_signalPinNum;
-          SignalPinInit(atoi((const char*)&buf[7]));
-          AUL_PININPUT;
-          AUL_PINHIGH;
-          SignalPinInit(oldpin);
-          break; }
         case 'P': // SELECT PORT
-          SignalPinInit(atoi((const char*)&buf[7]));
+          SignalPinInit(atoi8((const char*)&buf[7]));
           break;
         default:
           break;
@@ -531,12 +568,11 @@ void AUL_loop(uint8_t port)
         // Send status afterwards
         char* pos = (char*)&buf[3];
         *pos++ = 'P';
-        itoa(g_signalPinNum, pos, 10);
-        pos = strchr(pos, '\0');
-        *pos++ = ':';
-        *pos++ = 'B';
-        itoa(g_bitTimeSend, pos, 10);
-        pos = strchr(pos, '\0');
+        pos = itoa10(g_signalPinNum, pos);
+        pos[0] = ':';
+        pos[1] = 'B';
+        pos += 2;
+        pos = itoa10(g_bitTimeSend, pos);
         *pos++ = ':';
         
         SignalPinStatus(pos);
@@ -555,7 +591,7 @@ void AUL_loop(uint8_t port)
     
         // Trailer
         AUL_PINHIGH;
-        AUL_DelayTicks(g_bitTimeSendHalf);
+        AUL_DELAYTICKS(g_bitTimeSendHalf);
 
         AUL_PININPUT; // Pull-up is enabled from previous PINHIGH
         lastPin = 1;
@@ -563,8 +599,8 @@ void AUL_loop(uint8_t port)
     }
     else
     {
-      // Here we wait for a low to high transition
-      int8_t curPin = AUL_PINREAD;
+      // Here we look for a low to high transition on the signal pin
+      uint8_t curPin = AUL_PINREAD;
       
       if (!lastPin && curPin)
       {
@@ -579,10 +615,9 @@ void AUL_loop(uint8_t port)
           // Read bytes until timeout
           while (1)
           {
-            byt = 0;
-            for (i = 0; i < 8; i++)
+            for (i = 0, byt = 0; i < 8; i++)
             {
-              AUL_READBIT
+              AUL_READBIT // Sets b to the bit value
               byt |= b << i;
             }
             

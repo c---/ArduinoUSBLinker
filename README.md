@@ -38,15 +38,11 @@ Advanced usage:
    below.
 
    Supported commands are:
-   $M&lt;In : Initializes pin number n by turning on its pull-up resistor.
-              This will hold the ESC in bootloader mode. All ESC pins should
-              be initialized first to help prevent accidental motor power-up.
-              However, always consider the motors live and dangerous at all
-              times.
-              Example: "$M&lt;I1" will initialize pin 1 (PB1).
-
    $M&lt;Pn : Select pin number n. This will also set the pull-up resistor for
               the pin. The currently selected pin will be used for signaling.
+              It is recommened to make one pass through all the ESC pins
+              selecting each one before doing anything else. This will put them
+              all in bootloader mode and prevent "no-signal" beeping.
               Example: "$M&lt;P18" will select pin 18 (PD2/INT0).
 
    $M&lt;Bn : Sets the bit rate in microseconds.
@@ -72,9 +68,9 @@ Advanced usage:
    to the MultiWii sketch folder and rename it as "ArduinoUSBLinker.h". Apply
    the supplied patch "Serial.patch" to the MultiWii "Serial.ino" file.
 
-   The ArduinoUSBLinker code adds about 3K to the firmware size and depending
-   on which MultiWii options are configured there may not be enough room for
-   everything.
+   The ArduinoUSBLinker code adds approximately 1800 bytes to the firmware size
+   and depending on which MultiWii options are configured there may not be
+   enough room for everything.
    
    To enter the ArduinoUSBLinker mode a MultiWii command 211 must be sent using
    the MultiWii serial protocol. This is a binary string of the following
