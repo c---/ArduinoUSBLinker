@@ -119,7 +119,9 @@ static int8_t g_signalPinPortNum, g_signalPinNum;
 // stdlib type utility functions (mostly to save space)
 ///////////////////////////////////////////////////////////////////////////////
 
-static char* itoa10(uint8_t n, char *b)
+// Byte to ASCII base 10
+// Returns the address of the null terminator
+static char* btoa10(uint8_t n, char *b)
 {
    uint8_t i = 0, s;
    
@@ -152,11 +154,12 @@ static char* itoa10(uint8_t n, char *b)
    return &b[i];
 }
 
-static uint8_t atoi8(const char* s)
+// ASCII to byte
+static uint8_t atob(const char* s)
 {
-  uint8_t i = 0;
-  while (*s) i = (i << 3) + (i << 1) + (*s++ - '0');
-  return(i);
+  uint8_t b = 0;
+  while (*s) b = (b << 3) + (b << 1) + (*s++ - '0');
+  return(b);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -293,7 +296,7 @@ static void SignalPinStatus(char* buf)
 {
   #define AUL_WRITE_PORT_INFO(x) \
     *pos++ = #x[0]; \
-    pos = itoa10(pincnt, pos); \
+    pos = btoa10(pincnt, pos); \
     *pos++ = ':'; \
     pincnt += 8;
 
@@ -548,7 +551,7 @@ void AUL_loop(uint8_t port)
         switch(buf[6])
         {
         case 'B': { // BITTIME
-          uint8_t t = atoi8((const char*)&buf[7]);
+          uint8_t t = atob((const char*)&buf[7]);
   
           if (t < AUL_MIN_BITTIME)
             t = AUL_MIN_BITTIME;
@@ -559,7 +562,7 @@ void AUL_loop(uint8_t port)
           g_bitTimeSendHalf = (t >> 1);
           break; }
         case 'P': // SELECT PORT
-          SignalPinInit(atoi8((const char*)&buf[7]));
+          SignalPinInit(atob((const char*)&buf[7]));
           break;
         default:
           break;
@@ -568,11 +571,11 @@ void AUL_loop(uint8_t port)
         // Send status afterwards
         char* pos = (char*)&buf[3];
         *pos++ = 'P';
-        pos = itoa10(g_signalPinNum, pos);
+        pos = btoa10(g_signalPinNum, pos);
         pos[0] = ':';
         pos[1] = 'B';
         pos += 2;
-        pos = itoa10(g_bitTimeSend, pos);
+        pos = btoa10(g_bitTimeSend, pos);
         *pos++ = ':';
         
         SignalPinStatus(pos);
