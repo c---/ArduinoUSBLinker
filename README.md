@@ -38,6 +38,7 @@ Advanced usage:
    below.
 
    Supported commands are:
+
    $M&lt;Pn : Select pin number n. This will also set the pull-up resistor for
               the pin. The currently selected pin will be used for signaling.
               It is recommened to make one pass through all the ESC pins
