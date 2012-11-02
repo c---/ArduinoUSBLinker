@@ -406,8 +406,8 @@ static void SignalPinInit(int8_t pin)
   #endif
 
 finished:  
-  AUL_PININPUT;
   AUL_PINHIGH; // Enable pull-up
+  AUL_PININPUT;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -508,7 +508,15 @@ void AUL_loop(uint8_t port)
   AUL_SerialInit(port);
   
   #if !defined(MULTIWII)
+    // Re-enable interrupts for Serial
     sei();
+  #else
+    #if defined(BUZZERPIN_OFF)
+      BUZZERPIN_OFF;
+    #endif
+    #if defined(LEDPIN_OFF)
+      LEDPIN_OFF;
+    #endif
   #endif
   
   // Set timer2 to count ticks/8
