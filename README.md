@@ -28,6 +28,14 @@ Please look at the top of the source file for notes and more information.
 
 Advanced usage:
 
+ ** WARNING ** It is critically important that you don't have multiple
+   applications accessing the serial port at the same time. The Arduino serial
+   monitor in particular because it holds the port open and intercepts data.
+   Typically in this situation avrdude will get errors, recover, and then
+   eventually finish successfully. HOWEVER, dispite finishing successfully your
+   firmware will most likely be corrupted. This goes for both reading and
+   writing over the serial port.
+
  * The ArduinoUSBLinker supports run-time configuration of which pin to use for
    signaling and at what bit rate to run at. These options are configured by
    using text commands sent over the serial port.
