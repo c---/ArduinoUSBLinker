@@ -29,11 +29,14 @@ Known issues:
   likely crash this software. The STK500 firmware is currently limited to 281
   bytes so it is not an issue at this time.
 
-  Note that the default serial port rate is 115200 and this is separate from
+  Note that the default serial port rate is 19200 and this is separate from
   the servo wire signaling rate. Make sure your tools are using the same
   serial port rate. See SERIALRATE below.
   
 Version history:
+  ??? Buffer size now at 300 bytes for low memory devices. 19200 baud is now
+      the default to be compatible with more (all?) devices.
+
   0.7 Code shrink. Removed the 'I' command because 'P' does the same thing.
       Now adds ~1800 bytes to MultiWii.
       
@@ -42,7 +45,8 @@ Version history:
       full 115200 bps. Size is also reduced by a few hundred bytes. Default
       changed to 32µs bit timing so more people can test. I'm not sure if 8 Mhz
       ESC's and/or ESC's without external oscillators will be able to run at
-      that signaling rate. Default 115200 bps for MultiWii.
+      that signaling rate. Default 115200 bps for MultiWii (NOTE: this has
+      changed to 19200 in the most recent version).
   
   0.5 Can now be inserted into MultiWii code base.
   
@@ -76,7 +80,7 @@ Version history:
 #define MULTIWII
 #endif
 
-#define AUL_SERIALRATE 115200
+#define AUL_SERIALRATE 19200
 
 #define AUL_MIN_BITTIME 8
 #define AUL_MAX_BITTIME 136
