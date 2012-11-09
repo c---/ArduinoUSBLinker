@@ -9,7 +9,8 @@ ArduinoUSBLinker
 
 To use:
 
- * Load this sketch on to your Arduino or other ATmega.
+ * Load this sketch on to your Arduino or similar with at least 512 bytes
+   RAM.
 
  * Hook up the serial port/USB from the Arduino to your computer.
 

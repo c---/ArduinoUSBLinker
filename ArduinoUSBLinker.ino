@@ -25,7 +25,7 @@ Known issues:
   ESC to ensure that it is held in the bootloader (there should be no beeps
   from the ESC).
 
-  Message sizes of more than 1021 bytes (total) not not supported and will
+  Message sizes of more than 297 bytes (total) not not supported and will
   likely crash this software. The STK500 firmware is currently limited to 281
   bytes so it is not an issue at this time.
 
@@ -81,6 +81,8 @@ Version history:
 #define AUL_MIN_BITTIME 8
 #define AUL_MAX_BITTIME 136
 #define AUL_DEFAULT_BITTIME 32
+
+#define AUL_BUFSIZE 300
 
 #define AUL_SERIALTIMEOUT ((F_CPU >> 7) / (AUL_SERIALRATE >> 4))
 
@@ -525,7 +527,7 @@ void AUL_loop(uint8_t port)
   SignalPinInit(18); // PD2/INT0
 
   // The buffer always has the leader at the start
-  uint8_t buf[1024] = { 0xFF, 0xFF, 0x7F };
+  uint8_t buf[AUL_BUFSIZE] = { 0xFF, 0xFF, 0x7F };
   uint8_t lastPin = 0;
   int16_t buflen, i;
 
