@@ -35,7 +35,8 @@ Known issues:
   
 Version history:
   ??? Buffer size now at 300 bytes for low memory devices. 19200 baud is now
-      the default to be compatible with more (all?) devices.
+      the default to be compatible with more (all?) devices. Fix for detecting
+      MultiWii.
 
   0.7 Code shrink. Removed the 'I' command because 'P' does the same thing.
       Now adds ~1800 bytes to MultiWii.
@@ -76,7 +77,7 @@ Version history:
 ///////////////////////////////////////////////////////////////////////////////
 
 // Check for MultiWii
-#if defined(MINTHROTTLE)
+#if defined(MSP_VERSION)
 #define MULTIWII
 #endif
 
