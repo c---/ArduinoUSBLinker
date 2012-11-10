@@ -17,68 +17,13 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 02110-1301, USA.
 */
 
-/*
-Known issues:
-  When applying power to the Arduino and the ESC at the same time the ESC will
-  arm before we are able to set the signal pin HIGH. It will still work but be
-  careful. Best is to connect and power the Arduino first then power up the
-  ESC to ensure that it is held in the bootloader (there should be no beeps
-  from the ESC).
-
-  Message sizes of more than 297 bytes (total) not not supported and will
-  likely crash this software. The STK500 firmware is currently limited to 281
-  bytes so it is not an issue at this time.
-
-  Note that the default serial port rate is 19200 and this is separate from
-  the servo wire signaling rate. Make sure your tools are using the same
-  serial port rate. See SERIALRATE below.
-  
-Version history:
-  ??? Buffer size now at 300 bytes for low memory devices. 19200 baud is now
-      the default to be compatible with more (all?) devices. Fix for detecting
-      MultiWii.
-
-  0.7 Code shrink. Removed the 'I' command because 'P' does the same thing.
-      Now adds ~1800 bytes to MultiWii.
-      
-  0.6 Rework of the whole bit timing system. Improved performance across the
-      board. Serial performance in MultiWii is better now and can be run at the
-      full 115200 bps. Size is also reduced by a few hundred bytes. Default
-      changed to 32µs bit timing so more people can test. I'm not sure if 8 Mhz
-      ESC's and/or ESC's without external oscillators will be able to run at
-      that signaling rate. Default 115200 bps for MultiWii (NOTE: this has
-      changed to 19200 in the most recent version).
-  
-  0.5 Can now be inserted into MultiWii code base.
-  
-      Remove interrupt code. Some MultiWii boards can't do interrupts on all
-      of their ESC signal pins. Maximum speed around 31 kbps (32µs).
-      
-      Add runtime configuration commands. The signal pin and bit rate are now
-      selectable at runtime. See the README for more information.
-  
-  0.4 General code cleanup. Use bit shifting for all multiply and divide
-      operations when possible.
-      
-      Add support for easily changing the signal pin. PD2/INT0 and PD3/INT1
-      support full speed signaling while the other pins must be run slower
-      due to them having more overhead. Changing the signaling pin requires
-      updating ULPORT, ULPIN, PINREAD, PINISR, PININIT, PINENABLE, and
-      PINDISABLE. Some preconfigured defaults are below.
-
-  0.3 Set default bit rate to the correct 136µs signaling. Update comments.
-      
-  0.2 Minor code cleanup in ReadLeader().  Added main() implementation to
-      prevent Arduino overhead. Maximum speed now around 50 kbps (20µs).
-
-  0.1 Initial release. Maximum speed around 15 kbps (64µs).
-*/
-
 ///////////////////////////////////////////////////////////////////////////////
 
 // Check for MultiWii
 #if defined(MSP_VERSION)
-#define MULTIWII
+  #define MULTIWII
+#else
+  #include <EEPROM.h>
 #endif
 
 #define AUL_SERIALRATE 19200
@@ -87,9 +32,14 @@ Version history:
 #define AUL_MAX_BITTIME 136
 #define AUL_DEFAULT_BITTIME 32
 
+// Default PD2/INT0
+#define AUL_DEFAULT_PIN 18
+
 #define AUL_BUFSIZE 300
 
-#define AUL_SERIALTIMEOUT ((F_CPU >> 7) / (AUL_SERIALRATE >> 4))
+// We won't know what the MultWii baud rate is so default to "longest" serial
+// timeout at 9600 baud.
+#define AUL_SERIALTIMEOUT ((F_CPU >> 7) / (9600 >> 4))
 
 #define AUL_PININPUT  ((*g_signalDDR)  &= ~(g_signalPinPortNum))
 #define AUL_PINOUTPUT ((*g_signalDDR)  |=  (g_signalPinPortNum))
@@ -105,6 +55,18 @@ Version history:
 #define AUL_SYNC_PRESCALER \
   GTCCR = (1 << PSRASY); \
   while (GTCCR & (1 << PSRASY));
+
+// Save space on MultWii since baud rate changes are not supported and it is the
+// only thing that requires a value greater than uint8
+#if defined(MULTIWII)
+  #define AUL_ASCII_INT_TYPE uint8_t
+#else
+  #define AUL_ASCII_INT_TYPE uint32_t
+#endif
+
+#define AUL_EEPROM_PIN 3
+#define AUL_EEPROM_BITTIME 4
+#define AUL_EEPROM_BAUD 5
 
 ///////////////////////////////////////////////////////////////////////////////
 // Globals
@@ -122,13 +84,19 @@ static volatile uint8_t* g_signalPORT;
 static volatile uint8_t* g_signalPIN;
 static int8_t g_signalPinPortNum, g_signalPinNum;
 
+#if defined(MULTIWII)
+static uint32_t g_baudRate = 0;
+#else
+static uint32_t g_baudRate = AUL_SERIALRATE;
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 // stdlib type utility functions (mostly to save space)
 ///////////////////////////////////////////////////////////////////////////////
 
-// Byte to ASCII base 10
+// int to ASCII base 10
 // Returns the address of the null terminator
-static char* btoa10(uint8_t n, char *b)
+static char* AUL_itoa(AUL_ASCII_INT_TYPE n, char *b)
 {
    uint8_t i = 0, s;
    
@@ -140,31 +108,15 @@ static char* btoa10(uint8_t n, char *b)
 
    b[i] = '\0';
    
-   // Reverse the string (uint8 only 3 chars max)
-   switch (i)
-   {
-   case 1:
-     break;
-   case 2:
-     s = b[0];
-     b[0] = b[1];
-     b[1] = s;
-     break;
-   case 3:
-   default:
-     s = b[0];
-     b[0] = b[2];
-     b[2] = s;
-     break;
-   }
-
+   strrev(b);
+   
    return &b[i];
 }
 
-// ASCII to byte
-static uint8_t atob(const char* s)
+// ASCII to int base 10
+static AUL_ASCII_INT_TYPE AUL_atoi(const char* s)
 {
-  uint8_t b = 0;
+  AUL_ASCII_INT_TYPE b = 0;
   while (*s) b = (b << 3) + (b << 1) + (*s++ - '0');
   return(b);
 }
@@ -175,7 +127,7 @@ static uint8_t atob(const char* s)
 
 #if !defined(MULTIWII)
 
-#define AUL_SerialInit(x) Serial.begin(AUL_SERIALRATE)
+#define AUL_SerialInit(x) Serial.begin(g_baudRate)
 #define AUL_SerialAvailable() Serial.available()
 #define AUL_SerialRead() Serial.read()
 #define AUL_SerialWrite(x) Serial.write(x)
@@ -190,19 +142,7 @@ static uint8_t g_serialRXC, g_serialUDRE;
 
 static void AUL_SerialInit(uint8_t port)
 {
-  #define BAUD AUL_SERIALRATE
-  #include <util/setbaud.h>
-
-  #if USE_2X
-    #define AUL_INIT2X(x) UCSR##x##A |= (1 << U2X0)
-  #else 
-    #define AUL_INIT2X(x) UCSR##x##A &= ~(1 << U2X##x);
-  #endif // USE_2X
-  
   #define AUL_INIT_PORT(x) \
-    UBRR##x##H = UBRRH_VALUE; \
-    UBRR##x##L = UBRRL_VALUE; \
-    AUL_INIT2X(x); \ 
     UCSR##x##C = (1 << UCSZ##x##1) | (1 << UCSZ##x##0); \
     UCSR##x##B = (1 << RXEN##x) | (1 << TXEN##x); \
     g_serialUCSRA = &UCSR##x##A; \
@@ -303,7 +243,7 @@ static void SignalPinStatus(char* buf)
 {
   #define AUL_WRITE_PORT_INFO(x) \
     *pos++ = #x[0]; \
-    pos = btoa10(pincnt, pos); \
+    pos = AUL_itoa(pincnt, pos); \
     *pos++ = ':'; \
     pincnt += 8;
 
@@ -503,6 +443,37 @@ timeout:
   return -1;
 }
 
+static void SetBitTime(uint8_t t)
+{
+  if (t < AUL_MIN_BITTIME)
+    t = AUL_MIN_BITTIME;
+  else if (t > AUL_MAX_BITTIME)
+    t = AUL_MAX_BITTIME;
+
+  g_bitTimeSend = t;
+  g_bitTimeSendHalf = (t >> 1);
+}
+
+#if !defined(MULTIWII)
+static uint32_t EERead32(int pos)
+{
+  uint32_t value;
+  ((char*)&value)[0] = EEPROM.read(pos);
+  ((char*)&value)[1] = EEPROM.read(pos + 1);
+  ((char*)&value)[2] = EEPROM.read(pos + 2);
+  ((char*)&value)[3] = EEPROM.read(pos + 3);
+  return value;
+}
+
+static void EEWrite32(int pos, uint32_t value)
+{
+  EEPROM.write(pos, ((char*)&value)[0]);
+  EEPROM.write(pos + 1, ((char*)&value)[1]);
+  EEPROM.write(pos + 2, ((char*)&value)[2]);
+  EEPROM.write(pos + 3, ((char*)&value)[3]);
+}
+#endif // MULTIWII
+
 ///////////////////////////////////////////////////////////////////////////////
 // Main
 ///////////////////////////////////////////////////////////////////////////////
@@ -512,12 +483,8 @@ void AUL_loop(uint8_t port)
   // Disable interrupts and timers
   cli();
   DisableAllTimers();
-  AUL_SerialInit(port);
   
-  #if !defined(MULTIWII)
-    // Re-enable interrupts for Serial
-    sei();
-  #else
+  #if defined(MULTIWII)
     #if defined(BUZZERPIN_OFF)
       BUZZERPIN_OFF;
     #endif
@@ -529,7 +496,30 @@ void AUL_loop(uint8_t port)
   // Set timer2 to count ticks/8
   TCCR2B = (1 << CS21);
 
-  SignalPinInit(18); // PD2/INT0
+  #if defined(MULTIWII)
+    AUL_SerialInit(port);
+    SignalPinInit(AUL_DEFAULT_PIN);
+  #else
+    if (EEPROM.read(0) != 'A' ||
+        EEPROM.read(1) != 'U' ||
+        EEPROM.read(2) != 'L')
+    {
+      EEPROM.write(0, 'A');
+      EEPROM.write(1, 'U');
+      EEPROM.write(2, 'L');
+      EEPROM.write(AUL_EEPROM_PIN, AUL_DEFAULT_PIN);
+      EEPROM.write(AUL_EEPROM_BITTIME, AUL_DEFAULT_BITTIME);
+      EEWrite32(AUL_EEPROM_BAUD, AUL_SERIALRATE);
+    }
+    
+    SignalPinInit(EEPROM.read(AUL_EEPROM_PIN));  
+    SetBitTime(EEPROM.read(AUL_EEPROM_BITTIME));
+    
+    g_baudRate = EERead32(AUL_EEPROM_BAUD);
+    AUL_SerialInit(port);
+    
+    sei(); // Re-enable interrupts for Serial
+  #endif
 
   // The buffer always has the leader at the start
   uint8_t buf[AUL_BUFSIZE] = { 0xFF, 0xFF, 0x7F };
@@ -561,24 +551,36 @@ void AUL_loop(uint8_t port)
       
       if (buf[3] == '$' && buf[4] == 'M' && buf[5] == '<')
       {
+#if !defined(MULTIWII)
+        int8_t setbaud = 0;
+#endif
+
         buf[buflen] = '\0';
         
         switch(buf[6])
         {
         case 'B': { // BITTIME
-          uint8_t t = atob((const char*)&buf[7]);
-  
-          if (t < AUL_MIN_BITTIME)
-            t = AUL_MIN_BITTIME;
-          else if (t > AUL_MAX_BITTIME)
-            t = AUL_MAX_BITTIME;
-  
-          g_bitTimeSend = t;
-          g_bitTimeSendHalf = (t >> 1);
+          SetBitTime(AUL_atoi((const char*)&buf[7]));
           break; }
         case 'P': // SELECT PORT
-          SignalPinInit(atob((const char*)&buf[7]));
+          SignalPinInit(AUL_atoi((const char*)&buf[7]));
           break;
+#if !defined(MULTIWII)
+        case 'R': // BAUD RATE
+          g_baudRate = AUL_atoi((const char*)&buf[7]);
+
+          if (g_baudRate < 9600)
+            g_baudRate = 9600;
+
+          setbaud = 1;
+          break;
+        case 'W': // WRITE EEPROM settings
+          EEPROM.write(AUL_EEPROM_PIN, g_signalPinNum);
+          EEPROM.write(AUL_EEPROM_BITTIME, g_bitTimeSend);
+          EEWrite32(AUL_EEPROM_BAUD, g_baudRate);
+          AUL_SerialWriteStr("saved:");
+          break;
+#endif
         default:
           break;
         }
@@ -586,17 +588,37 @@ void AUL_loop(uint8_t port)
         // Send status afterwards
         char* pos = (char*)&buf[3];
         *pos++ = 'P';
-        pos = btoa10(g_signalPinNum, pos);
+        pos = AUL_itoa(g_signalPinNum, pos);
         pos[0] = ':';
         pos[1] = 'B';
         pos += 2;
-        pos = btoa10(g_bitTimeSend, pos);
+        pos = AUL_itoa(g_bitTimeSend, pos);
+        pos[0] = ':';
+        pos[1] = 'R';
+        pos += 2;
+        pos = AUL_itoa(g_baudRate, pos);
         *pos++ = ':';
         
         SignalPinStatus(pos);
         
         AUL_SerialWriteStr((const char*)&buf[3]);
         AUL_SerialWrite('\n');
+        
+#if !defined(MULTIWII)
+        if (setbaud)
+        {
+          // Arduino Serial.flush does not work correctly
+          Serial.flush();
+          
+          // Temporarily set timer2 to count ticks/128
+          TCCR2B = (1 << CS22) | (1 << CS20);  
+          AUL_DELAYTICKS(AUL_SERIALTIMEOUT);
+          AUL_DELAYTICKS(AUL_SERIALTIMEOUT);
+          TCCR2B = (1 << CS21);
+          
+          AUL_SerialInit(port);
+        }
+#endif        
       }
       else
       {
