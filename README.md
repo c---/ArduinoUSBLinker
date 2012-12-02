@@ -119,3 +119,5 @@ Advanced usage:
    MultiWii code base.
 
    To exit ArduinoUSBLinker mode power cycle or reset the device.
+
+Donations are accepted: http://luadev.com/rc
