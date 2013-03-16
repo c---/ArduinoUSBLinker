@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2012 Chris Osgood <chris at luadev.com>
+Copyright (C) 2012-2013 Chris Osgood <chris at luadev.com>
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -28,17 +28,19 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 
 #define AUL_SERIALRATE 19200
 
-#define AUL_MIN_BITTIME 8
+#define AUL_MIN_BITTIME 4
 #define AUL_MAX_BITTIME 136
 #define AUL_DEFAULT_BITTIME 32
+
+#define AUL_MICROS_TO_TICKS(x)  ((x) * (F_CPU / 1000000) / g_timerScale)
+#define AUL_MICROS_TO_TICKS_R(x) ((x) * g_timerScale / (F_CPU / 1000000))
+#define AUL_SET_TIMER_MODE TCCR2B = g_timerConfig
 
 // Default PD2/INT0
 #define AUL_DEFAULT_PIN 18
 
 #define AUL_BUFSIZE 300
 
-// We won't know what the MultWii baud rate is so default to "longest" serial
-// timeout at 9600 baud.
 #define AUL_SERIALTIMEOUT ((F_CPU >> 7) / (9600 >> 4))
 
 #define AUL_PININPUT  ((*g_signalDDR)  &= ~(g_signalPinPortNum))
@@ -64,17 +66,20 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
   #define AUL_ASCII_INT_TYPE uint32_t
 #endif
 
-#define AUL_EEPROM_PIN 3
-#define AUL_EEPROM_BITTIME 4
-#define AUL_EEPROM_BAUD 5
+#define AUL_EEPROM_PIN 4
+#define AUL_EEPROM_BITTIME 5
+#define AUL_EEPROM_BAUD 6
 
 ///////////////////////////////////////////////////////////////////////////////
 // Globals
 ///////////////////////////////////////////////////////////////////////////////
 
+static uint8_t g_timerConfig;
+static uint16_t g_timerScale;
+
 // Approximate microseconds for each bit when sending
-static uint8_t g_bitTimeSend = AUL_DEFAULT_BITTIME;
-static uint8_t g_bitTimeSendHalf = (AUL_DEFAULT_BITTIME >> 1);
+static uint8_t g_bitTimeSend;
+static uint8_t g_bitTimeSendHalf;
 
 // Calculated leader timing for receive
 static uint8_t g_bitTime, g_shortBitTime;
@@ -399,13 +404,19 @@ static void SendByte(uint8_t b)
   TCNT2 = 0; \
   while (!AUL_PINREAD) { if (TCNT2 > 250) goto timeout; }
 
+#define AUL_NT_SPINPINHIGH \
+  while (AUL_PINREAD) { if (TCNT2 > 250) goto timeout; }
+
+#define AUL_NT_SPINPINLOW \
+  while (!AUL_PINREAD) { if (TCNT2 > 250) goto timeout; }
+
 #define AUL_READBIT \
-  AUL_SPINPINLOW \
   AUL_SPINPINHIGH \
+  AUL_NT_SPINPINLOW \
   if (TCNT2 <= g_shortBitTime) \
   { \
-    AUL_SPINPINLOW \
     AUL_SPINPINHIGH \
+    AUL_NT_SPINPINLOW \
     b = 0; \
   } \
   else \
@@ -419,15 +430,20 @@ static int8_t ReadLeader()
   for (i = 0; i < 9; i++)
   {
     AUL_SPINPINHIGH
-    AUL_SPINPINLOW
+    AUL_NT_SPINPINLOW
   }
 
+#ifndef AUL_FIXED_TIMING
+  // Calculate timing from header
   AUL_SPINPINHIGH
-  AUL_SPINPINLOW
-  AUL_SPINPINHIGH
+  AUL_NT_SPINPINLOW
   g_bitTime = TCNT2;
-
   g_shortBitTime = (g_bitTime >> 1) + (g_bitTime >> 2);
+#else
+  // Use fixed timing
+  g_bitTime = g_bitTimeSend << 1;
+  g_shortBitTime = g_bitTimeSend + g_bitTimeSendHalf;
+#endif
 
   // Read until we get a 0 bit
   while (1)
@@ -443,15 +459,35 @@ timeout:
   return -1;
 }
 
-static void SetBitTime(uint8_t t)
+static void SetBitTime(uint16_t t)
 {
   if (t < AUL_MIN_BITTIME)
     t = AUL_MIN_BITTIME;
   else if (t > AUL_MAX_BITTIME)
     t = AUL_MAX_BITTIME;
 
-  g_bitTimeSend = t;
-  g_bitTimeSendHalf = (t >> 1);
+  if (t * (F_CPU / 1000000) < 242)
+  {
+    g_timerScale = 2;
+    g_timerConfig = (1 << CS20);
+  }
+  else if (t * (F_CPU / 1000000) / 8 < 242)
+  {
+    g_timerScale = 16;
+    g_timerConfig = (1 << CS21);
+  }
+  else if (t * (F_CPU / 1000000) / 32 < 242)
+  {
+    g_timerScale = 64;
+    g_timerConfig = (1 << CS21) | (1 << CS20);
+  }
+  else
+  {
+    return; // invalid time, no change
+  }
+
+  g_bitTimeSend = AUL_MICROS_TO_TICKS(t);
+  g_bitTimeSendHalf = (g_bitTimeSend >> 1);
 }
 
 #if !defined(MULTIWII)
@@ -472,7 +508,7 @@ static void EEWrite32(int pos, uint32_t value)
   EEPROM.write(pos + 2, ((char*)&value)[2]);
   EEPROM.write(pos + 3, ((char*)&value)[3]);
 }
-#endif // MULTIWII
+#endif // !MULTIWII
 
 ///////////////////////////////////////////////////////////////////////////////
 // Main
@@ -493,33 +529,35 @@ void AUL_loop(uint8_t port)
     #endif
   #endif
   
-  // Set timer2 to count ticks/8
-  TCCR2B = (1 << CS21);
-
   #if defined(MULTIWII)
     AUL_SerialInit(port);
+    SetBitTime(AUL_DEFAULT_BITTIME);
     SignalPinInit(AUL_DEFAULT_PIN);
   #else
-    if (EEPROM.read(0) != 'A' ||
-        EEPROM.read(1) != 'U' ||
-        EEPROM.read(2) != 'L')
+    if (EEPROM.read(0) != 'a' ||
+        EEPROM.read(1) != 'u' ||
+        EEPROM.read(2) != 'l')
     {
-      EEPROM.write(0, 'A');
-      EEPROM.write(1, 'U');
-      EEPROM.write(2, 'L');
+      EEPROM.write(0, 'a');
+      EEPROM.write(1, 'u');
+      EEPROM.write(2, 'l');
+      EEPROM.write(3, 1); // version
       EEPROM.write(AUL_EEPROM_PIN, AUL_DEFAULT_PIN);
       EEPROM.write(AUL_EEPROM_BITTIME, AUL_DEFAULT_BITTIME);
       EEWrite32(AUL_EEPROM_BAUD, AUL_SERIALRATE);
     }
-    
+
     SignalPinInit(EEPROM.read(AUL_EEPROM_PIN));  
     SetBitTime(EEPROM.read(AUL_EEPROM_BITTIME));
-    
+
     g_baudRate = EERead32(AUL_EEPROM_BAUD);
     AUL_SerialInit(port);
     
     sei(); // Re-enable interrupts for Serial
   #endif
+
+  // Set timer2 to count ticks
+  AUL_SET_TIMER_MODE;
 
   // The buffer always has the leader at the start
   uint8_t buf[AUL_BUFSIZE] = { 0xFF, 0xFF, 0x7F };
@@ -547,7 +585,7 @@ void AUL_loop(uint8_t port)
       } while (TCNT2 < AUL_SERIALTIMEOUT);
       
       // Set timer2 back to normal
-      TCCR2B = (1 << CS21);
+      AUL_SET_TIMER_MODE;
       
       if (buf[3] == '$' && buf[4] == 'M' && buf[5] == '<')
       {
@@ -576,11 +614,11 @@ void AUL_loop(uint8_t port)
           break;
         case 'W': // WRITE EEPROM settings
           EEPROM.write(AUL_EEPROM_PIN, g_signalPinNum);
-          EEPROM.write(AUL_EEPROM_BITTIME, g_bitTimeSend);
+          EEPROM.write(AUL_EEPROM_BITTIME, AUL_MICROS_TO_TICKS_R(g_bitTimeSend));
           EEWrite32(AUL_EEPROM_BAUD, g_baudRate);
           AUL_SerialWriteStr("saved:");
           break;
-#endif
+#endif // !MULTIWII
         default:
           break;
         }
@@ -592,7 +630,7 @@ void AUL_loop(uint8_t port)
         pos[0] = ':';
         pos[1] = 'B';
         pos += 2;
-        pos = AUL_itoa(g_bitTimeSend, pos);
+        pos = AUL_itoa(AUL_MICROS_TO_TICKS_R(g_bitTimeSend), pos);
         pos[0] = ':';
         pos[1] = 'R';
         pos += 2;
@@ -614,11 +652,11 @@ void AUL_loop(uint8_t port)
           TCCR2B = (1 << CS22) | (1 << CS20);  
           AUL_DELAYTICKS(AUL_SERIALTIMEOUT);
           AUL_DELAYTICKS(AUL_SERIALTIMEOUT);
-          TCCR2B = (1 << CS21);
+          AUL_SET_TIMER_MODE;
           
           AUL_SerialInit(port);
         }
-#endif        
+#endif // !MULTIWII
       }
       else
       {
@@ -682,5 +720,5 @@ int main(int argc, char* argv[])
   return 0;
 }
 
-#endif // MULTIWII
+#endif // !MULTIWII
 

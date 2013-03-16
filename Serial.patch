@@ -1,24 +1,25 @@
---- Serial.ino.orig	2012-11-04 18:01:38.264449135 -0500
-+++ Serial.ino	2012-11-05 14:12:28.736711865 -0500
-@@ -68,6 +68,7 @@
- #define MSP_RESET_CONF           208   //in message          no param
- #define MSP_SET_WP               209   //in message          sets a given WP (WP#,lat, lon, alt, flags)
+--- MultiWii.old/Serial.ino	2013-03-15 09:43:59.831324921 -0400
++++ MultiWii.new/Serial.ino	2013-03-16 05:32:19.280242687 -0400
+@@ -72,6 +72,8 @@
  #define MSP_SELECT_SETTING       210   //in message          Select Setting Number (0-2)
-+#define MSP_SELECT_USBLINKER     211   //in message          Select USB Linker mode
+ #define MSP_SET_HEAD             211   //in message          define a new heading hold direction
  
- #define MSP_SPEK_BIND            240   //in message          no param
++#define MSP_USBLINKER            239   //in message          Select USB Linker mode
++
+ #define MSP_BIND                 240   //in message          no param
  
-@@ -257,6 +258,9 @@
-      headSerialReply(0);
+ #define MSP_EEPROM_WRITE         250   //in message          no param
+@@ -525,6 +527,9 @@
+      }
       break;
- #endif
-+   case MSP_SELECT_USBLINKER:
+    #endif
++   case MSP_USBLINKER:
 +     { void AUL_loop(uint8_t); AUL_loop(CURRENTPORT); }
 +     break;
-    case MSP_IDENT:
-      headSerialReply(7);
-      serialize8(VERSION);   // multiwii version
-@@ -812,3 +816,5 @@
+    default:  // we do not know how to handle the (valid) message, indicate error MSP $M!
+      headSerialError(0);
+      break;
+@@ -868,3 +873,5 @@
  #else
  void debugmsg_append_str(const char *str) {};
  #endif

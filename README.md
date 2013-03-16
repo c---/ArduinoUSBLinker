@@ -109,13 +109,13 @@ Advanced usage:
 
    Baud rate for the serial interface is the same as MultiWii (usually 115200).
    
-   To enter the ArduinoUSBLinker mode a MultiWii command 211 must be sent using
+   To enter the ArduinoUSBLinker mode a MultiWii command 239 must be sent using
    the MultiWii serial protocol. This is a binary string of the following
-   6 characters (in hex): <code>24 4D 3C 00 D3 D3</code><br>
+   6 characters (in hex): <code>24 4D 3C 00 EF EF</code><br>
    In pseudo text:
-   <code>'$' 'M' '&lt;' &lt;datalen&gt; &lt;211&gt; &lt;checksum&gt;</code>
+   <code>'$' 'M' '&lt;' &lt;datalen&gt; &lt;239&gt; &lt;checksum&gt;</code>
 
-   Note the "211" command is subject to change and is not part of the official
+   Note the "239" command is subject to change and is not part of the official
    MultiWii code base.
 
    To exit ArduinoUSBLinker mode power cycle or reset the device.
