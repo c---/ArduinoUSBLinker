@@ -34,7 +34,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 
 #define AUL_MICROS_TO_TICKS(x)  ((x) * (F_CPU / 1000000) / g_timerScale)
 #define AUL_MICROS_TO_TICKS_R(x) ((x) * g_timerScale / (F_CPU / 1000000))
+
+#if defined(__AVR_ATmega8__)
+#define AUL_SET_TIMER_MODE TCCR2 = g_timerConfig
+#else
 #define AUL_SET_TIMER_MODE TCCR2B = g_timerConfig
+#endif
 
 // Default PD2/INT0
 #define AUL_DEFAULT_PIN 18
@@ -54,9 +59,15 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
   TCNT2 = 0; \
   while (TCNT2 < (x));
 
+#if defined(__AVR_ATmega8__)
+#define AUL_SYNC_PRESCALER \
+  SFIOR = (1 << PSR2); \
+  while (SFIOR & (1 << PSR2));
+#else
 #define AUL_SYNC_PRESCALER \
   GTCCR = (1 << PSRASY); \
   while (GTCCR & (1 << PSRASY));
+#endif
 
 // Save space on MultWii since baud rate changes are not supported and it is the
 // only thing that requires a value greater than uint8
@@ -220,6 +231,17 @@ static void DisableAllTimers()
   #define AUL_RESET_PORT(x) \
     TCCR##x##B = 0; \
     TCCR##x##A = 0;
+
+  // For mega8 and similar
+  #if defined(TCCR0)
+    TCCR0 = 0;
+  #endif
+  #if defined(TCCR1)
+    TCCR1 = 0;
+  #endif
+  #if defined(TCCR2)
+    TCCR2 = 0;
+  #endif
   
   #if defined(TCCR0B)
     AUL_RESET_PORT(0)
@@ -572,7 +594,11 @@ void AUL_loop(uint8_t port)
       buf[buflen++] = AUL_SerialRead();
   
       // Temporarily set timer2 to count ticks/128
+#if defined(__AVR_ATmega8__)
+      TCCR2 = (1 << CS22) | (1 << CS20);  
+#else
       TCCR2B = (1 << CS22) | (1 << CS20);  
+#endif
       AUL_SYNC_PRESCALER;
       TCNT2 = 0;     
       // Buffer data until the serial timeout
@@ -649,7 +675,11 @@ void AUL_loop(uint8_t port)
           Serial.flush();
           
           // Temporarily set timer2 to count ticks/128
+#if defined(__AVR_ATmega8__)
+          TCCR2 = (1 << CS22) | (1 << CS20);  
+#else
           TCCR2B = (1 << CS22) | (1 << CS20);  
+#endif
           AUL_DELAYTICKS(AUL_SERIALTIMEOUT);
           AUL_DELAYTICKS(AUL_SERIALTIMEOUT);
           AUL_SET_TIMER_MODE;
