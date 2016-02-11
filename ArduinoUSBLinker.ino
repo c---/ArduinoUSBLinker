@@ -112,7 +112,7 @@ static uint32_t g_baudRate = AUL_SERIALRATE;
 
 // int to ASCII base 10
 // Returns the address of the null terminator
-static char* AUL_itoa(AUL_ASCII_INT_TYPE n, char *b)
+char* AUL_itoa(AUL_ASCII_INT_TYPE n, char *b)
 {
    uint8_t i = 0, s;
    
@@ -130,7 +130,7 @@ static char* AUL_itoa(AUL_ASCII_INT_TYPE n, char *b)
 }
 
 // ASCII to int base 10
-static AUL_ASCII_INT_TYPE AUL_atoi(const char* s)
+AUL_ASCII_INT_TYPE AUL_atoi(const char* s)
 {
   AUL_ASCII_INT_TYPE b = 0;
   while (*s) b = (b << 3) + (b << 1) + (*s++ - '0');
@@ -226,7 +226,7 @@ static void AUL_SerialWriteStr(const char* b)
 ///////////////////////////////////////////////////////////////////////////////
 
 // Clear all timers and PWM settings
-static void DisableAllTimers()
+void DisableAllTimers()
 {
   #define AUL_RESET_PORT(x) \
     TCCR##x##B = 0; \
@@ -266,7 +266,7 @@ static void DisableAllTimers()
   #endif
 }
 
-static void SignalPinStatus(char* buf)
+void SignalPinStatus(char* buf)
 {
   #define AUL_WRITE_PORT_INFO(x) \
     *pos++ = #x[0]; \
@@ -325,7 +325,7 @@ static void SignalPinStatus(char* buf)
   *pos = '\0';
 }
 
-static void SignalPinInit(int8_t pin)
+void SignalPinInit(int8_t pin)
 {
   #define AUL_SETUP_PORT(x) \
     if (pin < (pincnt += 8)) \
@@ -388,7 +388,7 @@ finished:
 // SENDING on signal pin
 ///////////////////////////////////////////////////////////////////////////////
 
-static void SendByte(uint8_t b)
+void SendByte(uint8_t b)
 {
   uint8_t i;
   for (i = 1; i; i <<= 1)
@@ -444,7 +444,7 @@ static void SendByte(uint8_t b)
   else \
     b = 1;
 
-static int8_t ReadLeader()
+int8_t ReadLeader()
 {
   uint8_t i;
   
@@ -481,7 +481,7 @@ timeout:
   return -1;
 }
 
-static void SetBitTime(uint16_t t)
+void SetBitTime(uint16_t t)
 {
   if (t < AUL_MIN_BITTIME)
     t = AUL_MIN_BITTIME;
@@ -513,7 +513,7 @@ static void SetBitTime(uint16_t t)
 }
 
 #if !defined(MULTIWII)
-static uint32_t EERead32(int pos)
+uint32_t EERead32(int pos)
 {
   uint32_t value;
   ((char*)&value)[0] = EEPROM.read(pos);
@@ -523,7 +523,7 @@ static uint32_t EERead32(int pos)
   return value;
 }
 
-static void EEWrite32(int pos, uint32_t value)
+void EEWrite32(int pos, uint32_t value)
 {
   EEPROM.write(pos, ((char*)&value)[0]);
   EEPROM.write(pos + 1, ((char*)&value)[1]);
